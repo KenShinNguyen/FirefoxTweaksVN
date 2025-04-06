@@ -3,5 +3,7 @@
 
 [Firefox Max Speed UserJS](https://raw.githubusercontent.com/FirefoxUniverse/FirefoxTweaksVN/main/user.js)
 
+[Telegram Channel](https://t.me/phatquangphochieu)
+
 # License
 Free for personal use.
