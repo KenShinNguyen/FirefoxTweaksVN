@@ -194,10 +194,6 @@ user_pref("network.buffer.cache.count", 24); // default=24
 // Enable Add Search
 user_pref("browser.urlbar.update2.engineAliasRefresh", true);
 
-// Enable Sleeping Tab
-user_pref("floorp.tabsleep.enabled", true);
-user_pref("floorp.tabsleep.tabTimeoutMinutes", 6);
-
 // Enable PWA
 user_pref("browser.ssb.enabled", true);
 
@@ -461,3 +457,45 @@ user_pref("layout.word_select.eat_space_to_next_word", false);
 /****************************************************************************
  * END: BETTERFOX                                                           *
 ****************************************************************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/****************************************************************************
+ * START: ZEN-SPECIFIC OVERRIDES                                            *
+****************************************************************************/
+// Remove the slashes to enable the prefs
+
+// PREF: reduce CPU and GPU use until bug is fixed
+// [1] https://github.com/zen-browser/desktop/issues/6302
+user_pref("zen.view.experimental-rounded-view", false);
+
+// PREF: re-enable Windows efficiency mode
+//user_pref("dom.ipc.processPriorityManager.backgroundUsesEcoQoS", true);
+
+// PREF: disable new tab preload since they are off by default
+//user_pref("browser.newtab.preload", false);
+
+// PREF: show Enhance Tracking Protection shield in URL bar
+// Currently bugged if you click to view what's blocked
+//user_pref("zen.urlbar.show-protections-icon", true);
+
+
+/****************************************************************************
+ * START: FLOORP-SPECIFIC OVERRIDES                                         *
+****************************************************************************/
+// Enable Sleeping Tab
+user_pref("floorp.tabsleep.enabled", true);
+user_pref("floorp.tabsleep.tabTimeoutMinutes", 6);
