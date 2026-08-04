@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MPV-M3U8 Video Detector and Downloader
 // @name:en      MPV-M3U8 Video Detector and Downloader
-// @version      1.7.0
-// @description     Detect m3u8 playlists and plain videos on any page. Detected links show up in a draggable panel: click a link to copy it, MPV to play it with the page as Referer, or the arrow to download.
+// @version      1.8.0
+// @description     Detect m3u8/DASH playlists, Media Source streams and plain videos on any page. Detected links show up in a draggable panel: click a link to copy it, MPV to play it with the page as Referer, or the arrow to download.
 // @description:en  Automatically detect the m3u8 video of the page and download it completely. Once detected the m3u8 link, it will appear in the upper right corner of the page. Click download to jump to the m3u8 downloader.
 // @icon         https://tools.thatwind.com/favicon.png
 // @author       -
@@ -246,7 +246,63 @@
 
 
     let count = 0;
-    const shownUrls = new Set();
+
+    // A page can stay open for hours — a live stream rotating its playlist urls,
+    // an SPA swapping players — so nothing keyed by url may grow without end.
+    // Entries drop out on age, or least-recently-used first once the cap is hit.
+    class LruTtl {
+        constructor(max, ttlMs) {
+            this.max = max;
+            this.ttl = ttlMs;
+            this.entries = new Map();
+        }
+        get(key) {
+            const entry = this.entries.get(key);
+            if (!entry) return undefined;
+            // The stamp is the insert time, not the last read: an entry is stale
+            // once it is old, however often it has been looked at since.
+            if (Date.now() - entry.at > this.ttl) {
+                this.entries.delete(key);
+                return undefined;
+            }
+            // A Map iterates in insertion order, so re-inserting an entry is what
+            // marks it as the most recently used one.
+            this.entries.delete(key);
+            this.entries.set(key, entry);
+            return entry.value;
+        }
+        has(key) {
+            return this.get(key) !== undefined;
+        }
+        set(key, value) {
+            this.entries.delete(key);
+            this.entries.set(key, { value, at: Date.now() });
+            while (this.entries.size > this.max) {
+                this.entries.delete(this.entries.keys().next().value);
+            }
+        }
+        delete(key) {
+            this.entries.delete(key);
+        }
+        get size() {
+            return this.entries.size;
+        }
+    }
+
+    // Half an hour outlives any player's re-request of the same playlist, so an
+    // eviction costing a duplicate row is already unlikely; showVideo checks the
+    // rendered rows before adding one, so it cannot happen at all.
+    const shownUrls = new LruTtl(500, 30 * 60 * 1000);
+
+    // An MSE stream never exposes a url this panel could otherwise see: the player
+    // fetches segments itself, feeds them to a MediaSource, and points the <video>
+    // at a blob. Recording which object urls belong to a MediaSource is what lets
+    // the video check tell such a player apart from an ordinary blob video.
+    const mseCodecs = new WeakMap();
+    // Bounded for the same reason shownUrls is — a player that rebuilds its
+    // MediaSource on every ad break mints a fresh object url each time — and held
+    // through a WeakRef so a stale entry cannot pin a dead MediaSource in memory.
+    const mseObjectUrls = new LruTtl(64, 60 * 60 * 1000);
 
     function downloaderUrl(m3u8, filename) {
         return `https://tools.thatwind.com/tool/m3u8downloader#${new URLSearchParams({
@@ -260,6 +316,88 @@
         // Live streams report Infinity, and an unparsed manifest reports 0.
         if (!Number.isFinite(seconds) || seconds <= 0) return "未知(unknown)";
         return `${Math.ceil(seconds * 10 / 60) / 10} mins`;
+    }
+
+    // Both sniffers name the kind of stream rather than answering yes/no, so a
+    // DASH manifest is not mistaken for a playlist further down.
+    function sniffUrl(url) {
+        if (!url) return null;
+        let parsed;
+        try {
+            parsed = new URL(url, location.href);
+        } catch {
+            return null;
+        }
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+        // 发现 / found one
+        if (parsed.pathname.includes(".m3u8") || parsed.pathname.includes(".m3u")) return "m3u8";
+        if (parsed.pathname.includes(".mpd")) return "mpd";
+        return null;
+    }
+
+    function sniffContent(content) {
+        // Look at the head only: a response body can be megabytes long.
+        if (typeof content !== "string") return null;
+        const head = content.slice(0, 512).trim();
+        if (head.startsWith("#EXTM3U")) return "m3u8";
+        // A DASH manifest is XML rooted at <MPD>, which an xml declaration, a
+        // comment or a namespace prefix may precede.
+        if (head.startsWith("<") && /<(?:[\w.-]+:)?MPD[\s>]/.test(head)) return "mpd";
+        return null;
+    }
+
+    function describeHls(content, uri) {
+        // Passing the uri lets the parser resolve EXT-X-DEFINE query params.
+        const parser = new m3u8Parser.Parser({ uri });
+        parser.push(content);
+        parser.end();
+        const manifest = parser.manifest;
+
+        if (manifest.segments && manifest.segments.length) {
+            return formatDuration(manifest.segments.reduce((total, segment) => total + (segment.duration || 0), 0));
+        }
+        if (manifest.playlists && manifest.playlists.length) {
+            return `多(Multi)(${manifest.playlists.length})`;
+        }
+        return "未知(unknown)";
+    }
+
+    // MPD durations are ISO 8601, e.g. PT1H2M3.5S. Years and months are not
+    // convertible to seconds without a calendar and never appear in a manifest, so
+    // a duration using them reads as unknown rather than as a confidently wrong
+    // number.
+    function parseIsoDuration(value) {
+        const m = /^P(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
+            .exec(String(value == null ? "" : value).trim());
+        if (!m) return 0;
+        const part = (i) => (m[i] === undefined ? 0 : parseFloat(m[i]));
+        return part(1) * 604800 + part(2) * 86400 + part(3) * 3600 + part(4) * 60 + part(5);
+    }
+
+    // Returns null when the body turns out not to be a DASH manifest after all, so
+    // the caller can drop the url instead of listing a row for it.
+    function describeDash(content) {
+        let doc;
+        try {
+            doc = new DOMParser().parseFromString(content, "application/xml");
+        } catch {
+            return null;
+        }
+        // A parse failure is reported as a document containing <parsererror>
+        // rather than as a thrown error.
+        if (doc.getElementsByTagName("parsererror").length) return null;
+
+        const mpd = doc.documentElement;
+        // localName rather than tagName: a manifest may carry a namespace prefix.
+        if (!mpd || mpd.localName !== "MPD") return null;
+
+        if (mpd.getAttribute("type") === "dynamic") return "直播(live)";
+
+        const seconds = parseIsoDuration(mpd.getAttribute("mediaPresentationDuration"));
+        if (seconds > 0) return formatDuration(seconds);
+
+        const representations = doc.getElementsByTagName("Representation").length;
+        return representations ? `多(Multi)(${representations})` : "未知(unknown)";
     }
 
     // The url-safe base64 that mpv/scripts/protocol_hook.lua decodes (atobUrl maps
@@ -520,8 +658,7 @@
                 apply: function (target, thisArg, args) {
                     try {
                         const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url);
-                        // Pass the url as content so doM3U does not try to parse a flv stream.
-                        if (url && url.includes(".flv")) doM3U({ url, content: url, type: "flv" });
+                        if (url && url.includes(".flv")) doStream({ url, kind: "flv" });
                     } catch {
                         // Detection must never break the page's own fetch.
                     }
@@ -536,8 +673,9 @@
                 _r_text.call(this).then((text) => {
                     resolve(text);
                     try {
-                        if (checkContent(text)) doM3U({ url: this.url, content: text });
-                        else if (checkUrl(this.url)) doM3U({ url: this.url });
+                        const kind = sniffContent(text);
+                        if (kind) doStream({ url: this.url, content: text, kind });
+                        else if (sniffUrl(this.url)) doStream({ url: this.url });
                     } catch {
                         // Never surface detection errors to the page.
                     }
@@ -553,11 +691,12 @@
                     // responseText only exists for the default and "text" response types.
                     if (this.responseType && this.responseType !== "text") return;
                     const content = this.responseText;
-                    if (checkContent(content)) doM3U({ url: requestUrl, content });
+                    const kind = sniffContent(content);
+                    if (kind) doStream({ url: requestUrl, content, kind });
                 } catch { }
             });
             try {
-                if (checkUrl(requestUrl)) doM3U({ url: requestUrl });
+                if (sniffUrl(requestUrl)) doStream({ url: requestUrl });
             } catch {
                 // A throw here would break the page's XMLHttpRequest.
             }
@@ -565,57 +704,181 @@
         }
 
 
-        function checkUrl(url) {
-            if (!url) return false;
-            let parsed;
-            try {
-                parsed = new URL(url, location.href);
-            } catch {
-                return false;
+        // MSE 检测 / Media Source detection.
+        // Segments the player appends by hand never pass through a url the panel
+        // can see, so the MediaSource itself is what has to be watched.
+        const mediaSourceCtors = [unsafeWindow.MediaSource, unsafeWindow.ManagedMediaSource]
+            .filter(ctor => typeof ctor === "function" && ctor.prototype);
+
+        for (const Ctor of mediaSourceCtors) {
+            const _addSourceBuffer = Ctor.prototype.addSourceBuffer;
+            if (typeof _addSourceBuffer !== "function") continue;
+            Ctor.prototype.addSourceBuffer = function (mime) {
+                try {
+                    let codecs = mseCodecs.get(this);
+                    if (!codecs) mseCodecs.set(this, codecs = new Set());
+                    if (typeof mime === "string" && mime) codecs.add(mime);
+                } catch {
+                    // Detection must never break the page's own player.
+                }
+                return _addSourceBuffer.apply(this, arguments);
+            };
+        }
+
+        // Pages mint object urls for images and downloads too, so only the ones
+        // wrapping a MediaSource are recorded.
+        if (mediaSourceCtors.length && unsafeWindow.URL && typeof unsafeWindow.URL.createObjectURL === "function") {
+            const _createObjectURL = unsafeWindow.URL.createObjectURL;
+            unsafeWindow.URL.createObjectURL = function (obj) {
+                const objectUrl = _createObjectURL.apply(this, arguments);
+                try {
+                    if (mediaSourceCtors.some(Ctor => obj instanceof Ctor)) {
+                        mseObjectUrls.set(objectUrl, new WeakRef(obj));
+                    }
+                } catch {
+                    // Never let bookkeeping fail the page's createObjectURL call.
+                }
+                return objectUrl;
+            };
+
+            const _revokeObjectURL = unsafeWindow.URL.revokeObjectURL;
+            if (typeof _revokeObjectURL === "function") {
+                unsafeWindow.URL.revokeObjectURL = function (objectUrl) {
+                    try {
+                        mseObjectUrls.delete(objectUrl);
+                    } catch { }
+                    return _revokeObjectURL.apply(this, arguments);
+                };
             }
-            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-            // 发现 / found one
-            return parsed.pathname.includes(".m3u8") || parsed.pathname.includes(".m3u");
-        }
-
-        function checkContent(content) {
-            // Look at the head only: a response body can be megabytes long.
-            return typeof content === "string" && content.slice(0, 64).trim().startsWith("#EXTM3U");
         }
 
 
-        // 检查纯视频 / poll for plain <video> elements
-        setInterval(doVideos, 1000);
+        // 检查纯视频 / watch for plain <video> elements
+        watchMedia();
 
     }
 
-    function doVideos() {
-
-        for (let v of Array.from(document.querySelectorAll("video"))) {
-            // currentSrc also covers <source> children, which v.src misses.
-            const src = v.currentSrc || v.src;
-            if (!v.duration || !src || !src.startsWith("http") || shownUrls.has(src)) continue;
-
-            listIframeOnce();
-            showVideo({
-                type: "video",
-                url: new URL(src),
-                duration: formatDuration(v.duration),
-                download() {
-                    mgmapi.download({
-                        url: src,
-                        name: buildFileName(src),
-                        headers: {
-                            // referer: location.origin, // 不允许该头
-                            origin: location.origin
-                        },
-                        onerror(e) {
-                            mgmapi.openInTab(src);
-                        }
-                    });
-                }
-            })
+    // Videos used to be found by re-querying the whole document every second,
+    // which costs the same on a page that never gains a video as on one that
+    // does. Two signals replace the poll and between them cover everything it
+    // saw: the media events themselves, which is when a duration actually becomes
+    // readable, and a mutation observer for elements added or re-pointed without
+    // any event of their own.
+    function watchMedia() {
+        for (const name of ["loadedmetadata", "durationchange", "loadeddata", "canplay", "playing"]) {
+            // Media events do not bubble, but a capture-phase listener on the
+            // document still sees every one of them on the way down.
+            document.addEventListener(name, (e) => {
+                try {
+                    scanForVideos(e.target);
+                } catch { }
+            }, true);
         }
+
+        const observer = new MutationObserver((records) => {
+            for (const record of records) {
+                try {
+                    if (record.type === "attributes") scanForVideos(record.target);
+                    else for (const node of record.addedNodes) scanForVideos(node);
+                } catch { }
+            }
+        });
+
+        (function observeRoot() {
+            // At document-start there may be no documentElement to observe yet.
+            if (!document.documentElement) return void setTimeout(observeRoot, 0);
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                // A player swapping streams writes src rather than replacing the
+                // element, and `v.src = url` reflects to the attribute.
+                attributeFilter: ["src"]
+            });
+            scanForVideos(document.documentElement);
+        })();
+    }
+
+    function scanForVideos(node) {
+        if (!node || node.nodeType !== 1) return;
+        if (node.tagName === "VIDEO") checkVideo(node);
+        // <source> carries the url for videos that have no src of their own.
+        else if (node.tagName === "SOURCE" && node.parentElement && node.parentElement.tagName === "VIDEO") {
+            checkVideo(node.parentElement);
+        }
+        if (node.querySelectorAll) {
+            for (const v of node.querySelectorAll("video")) checkVideo(v);
+        }
+    }
+
+    function checkVideo(v) {
+        // currentSrc also covers <source> children, which v.src misses.
+        const src = v.currentSrc || v.src;
+        if (!src || shownUrls.has(src)) return;
+
+        if (src.startsWith("blob:")) return checkMediaSource(v, src);
+        if (!src.startsWith("http")) return;
+        // No duration yet means metadata is still loading; the event that
+        // delivers it will bring us back here.
+        if (!v.duration) return;
+
+        let url;
+        try {
+            url = new URL(src);
+        } catch {
+            return;
+        }
+
+        listIframeOnce();
+        showVideo({
+            type: "video",
+            url,
+            duration: formatDuration(v.duration),
+            download() {
+                mgmapi.download({
+                    url: src,
+                    name: buildFileName(src),
+                    headers: {
+                        // referer: location.origin, // 不允许该头
+                        origin: location.origin
+                    },
+                    onerror(e) {
+                        mgmapi.openInTab(src);
+                    }
+                });
+            }
+        });
+    }
+
+    // A blob url on a <video> is worth a row only when it stands for a
+    // MediaSource: an ordinary blob video is a file the page already holds, while
+    // an MSE stream is one being assembled from segments fetched elsewhere. The
+    // row exists to say so — neither MPV nor the downloader can open a blob url,
+    // so the stream itself has to be picked up from an m3u8 or mpd row.
+    function checkMediaSource(v, blobUrl) {
+        const ref = mseObjectUrls.get(blobUrl);
+        const mediaSource = ref && ref.deref();
+        if (!mediaSource) return;
+
+        const codecs = mseCodecs.get(mediaSource);
+        // addSourceBuffer has not run yet; a later media event will find it.
+        if (!codecs || !codecs.size) return;
+
+        let url;
+        try {
+            url = new URL(blobUrl);
+        } catch {
+            return;
+        }
+
+        listIframeOnce();
+        showVideo({
+            type: "mse",
+            url,
+            label: [...codecs].join(", "),
+            title: `${blobUrl}\nMedia Source stream — segments are fetched separately, look for an m3u8 or mpd row`,
+            duration: formatDuration(v.duration)
+        });
     }
 
     function buildFileName(src) {
@@ -630,7 +893,7 @@
         return name;
     }
 
-    async function doM3U({ url, content, type = "m3u8" }) {
+    async function doStream({ url, content, kind }) {
 
         let parsed;
         try {
@@ -642,33 +905,39 @@
         if (shownUrls.has(parsed.href)) return;
         // Claim the url before awaiting anything: the fetch below re-enters this
         // function through the patched Response.prototype.text.
-        shownUrls.add(parsed.href);
+        shownUrls.set(parsed.href, true);
 
         try {
-            // 解析 m3u / parse the playlist
-            if (!content) content = await (await fetch(parsed.href)).text();
+            // An flv url is listed on its own; there is no manifest to read.
+            if (kind !== "flv" && content === undefined) {
+                content = await (await fetch(parsed.href)).text();
+            }
+            // The body decides, since a manifest is often served from a url that
+            // names no extension at all.
+            if (!kind) kind = sniffContent(content) || sniffUrl(parsed.href) || "m3u8";
 
-            // Passing the uri lets the parser resolve EXT-X-DEFINE query params.
-            const parser = new m3u8Parser.Parser({ uri: parsed.href });
-            parser.push(content);
-            parser.end();
-            const manifest = parser.manifest;
-
-            let duration;
-            if (manifest.segments && manifest.segments.length) {
-                duration = formatDuration(manifest.segments.reduce((total, segment) => total + (segment.duration || 0), 0));
-            } else if (manifest.playlists && manifest.playlists.length) {
-                duration = `多(Multi)(${manifest.playlists.length})`;
-            } else {
-                duration = "未知(unknown)";
+            let duration = "未知(unknown)";
+            if (kind === "m3u8") {
+                // 解析 m3u / parse the playlist
+                duration = describeHls(content, parsed.href);
+            } else if (kind === "mpd") {
+                duration = describeDash(content);
+                // Not a manifest after all — drop it rather than list a bad row.
+                if (!duration) {
+                    shownUrls.delete(parsed.href);
+                    return;
+                }
             }
 
             listIframeOnce();
             showVideo({
-                type,
+                type: kind,
                 url: parsed,
                 duration,
-                async download() {
+                // The thatwind downloader speaks HLS, so a DASH manifest gets no
+                // download button rather than one that opens a tool that will
+                // fail on it. MPV plays either.
+                download: kind === "mpd" ? null : async function () {
                     mgmapi.openInTab(downloaderUrl(parsed.href, await getTopTitle()));
                 }
             })
@@ -685,10 +954,19 @@
         type,
         url,
         duration,
-        download
+        download,
+        label,
+        title
     }) {
+        // The rendered rows are the authority on what has already been listed, so
+        // an entry aged out of shownUrls can never produce a second row.
+        for (const row of wrapper.querySelectorAll(".m3u8-item")) {
+            if (row.dataset.url === url.href) return;
+        }
+
         const div = document.createElement("div");
         div.className = "m3u8-item";
+        div.dataset.url = url.href;
 
         const typeLabel = document.createElement("span");
         typeLabel.textContent = type;
@@ -698,10 +976,10 @@
         const link = document.createElement("a");
         link.className = "copy-link";
         link.href = url.href;
-        link.title = url.href;
+        link.title = title || url.href;
         link.target = "_blank";
         link.rel = "noreferrer noopener";
-        link.textContent = url.pathname + url.search;
+        link.textContent = label || (url.pathname + url.search);
         link.style.cssText = `
             color: white;
             max-width: 200px;
@@ -719,24 +997,33 @@
             flex-grow: 1;
         `;
 
+        div.append(typeLabel, link, durationLabel);
+
         // A real anchor rather than a click handler: the browser hands mpv:// to the
-        // protocol handler itself, and the url stays visible and copyable.
-        const mpvBtn = document.createElement("a");
-        mpvBtn.className = "mpv-btn";
-        mpvBtn.href = mpvUrl(url.href);
-        mpvBtn.textContent = "MPV";
-        mpvBtn.title = "Play in MPV (sends the page as Referer)";
+        // protocol handler itself, and the url stays visible and copyable. A blob
+        // url is the one thing MPV cannot be handed, so an MSE row carries no
+        // button rather than one that opens an empty player.
+        if (url.protocol === "http:" || url.protocol === "https:") {
+            const mpvBtn = document.createElement("a");
+            mpvBtn.className = "mpv-btn";
+            mpvBtn.href = mpvUrl(url.href);
+            mpvBtn.textContent = "MPV";
+            mpvBtn.title = "Play in MPV (sends the page as Referer)";
+            div.append(mpvBtn);
+        }
 
-        const downloadBtn = document.createElement("span");
-        downloadBtn.className = "download-btn";
-        downloadBtn.textContent = "⯆";
-        downloadBtn.title = "Download";
-        downloadBtn.style.cssText = `
-            margin-left: 10px;
-            cursor: pointer;
-        `;
-
-        div.append(typeLabel, link, durationLabel, mpvBtn, downloadBtn);
+        if (download) {
+            const downloadBtn = document.createElement("span");
+            downloadBtn.className = "download-btn";
+            downloadBtn.textContent = "⯆";
+            downloadBtn.title = "Download";
+            downloadBtn.style.cssText = `
+                margin-left: 10px;
+                cursor: pointer;
+            `;
+            downloadBtn.addEventListener("click", download);
+            div.append(downloadBtn);
+        }
 
         link.addEventListener("click", async (e) => {
             // Plain click copies; ctrl/middle click still opens the link.
@@ -747,13 +1034,11 @@
             mgmapi.message("已复制链接 (link copied)", 2000);
         });
 
-        downloadBtn.addEventListener("click", download);
-
         rootDiv.style.display = "block";
 
         count++;
 
-        shownUrls.add(url.href);
+        shownUrls.set(url.href, true);
 
         bar.querySelector(".number-indicator").setAttribute("data-number", count);
 
