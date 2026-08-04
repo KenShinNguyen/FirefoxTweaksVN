@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MPV-M3U8 Video Detector and Downloader
 // @name:en      MPV-M3U8 Video Detector and Downloader
-// @version      1.6.0
-// @description     Detect m3u8 playlists and plain videos on any page and hand them to the m3u8 downloader. Detected links show up in a draggable panel; click a link to copy it, or the arrow to download.
+// @version      1.7.0
+// @description     Detect m3u8 playlists and plain videos on any page. Detected links show up in a draggable panel: click a link to copy it, MPV to play it with the page as Referer, or the arrow to download.
 // @description:en  Automatically detect the m3u8 video of the page and download it completely. Once detected the m3u8 link, it will appear in the upper right corner of the page. Click download to jump to the m3u8 downloader.
 // @icon         https://tools.thatwind.com/favicon.png
 // @author       -
@@ -262,6 +262,22 @@
         return `${Math.ceil(seconds * 10 / 60) / 10} mins`;
     }
 
+    // The url-safe base64 that mpv/scripts/protocol_hook.lua decodes (atobUrl maps
+    // _ back to / and - back to +). Encoding the UTF-8 bytes keeps btoa from
+    // throwing on non-latin1 urls; for ascii it is byte for byte the same.
+    function b64url(str) {
+        let binary = "";
+        for (const byte of new TextEncoder().encode(str)) binary += String.fromCharCode(byte);
+        return btoa(binary).replace(/\//g, "_").replace(/\+/g, "-").replace(/=/g, "");
+    }
+
+    // Same shape Handlers Helper builds, so the existing protocol handler applies:
+    // mpv://<app>/<url>/?referer=<page>. Without the referer most CDNs answer 403,
+    // which is why a bare link pasted into mpv plays nothing.
+    function mpvUrl(mediaUrl) {
+        return `mpv://play/${b64url(mediaUrl)}/?referer=${b64url(location.href)}`;
+    }
+
     // The frame url is only worth listing once this frame turns out to hold media,
     // otherwise every ad and tracking iframe on the page adds a row.
     let iframeListed = false;
@@ -377,6 +393,21 @@
             text-decoration: underline;
         }
         .download-btn:active{
+            opacity: 0.9;
+        }
+
+        .mpv-btn{
+            margin-left: 10px;
+            color: #40a9ff;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .mpv-btn:hover{
+            text-decoration: underline;
+        }
+        .mpv-btn:active{
             opacity: 0.9;
         }
 
@@ -688,15 +719,24 @@
             flex-grow: 1;
         `;
 
+        // A real anchor rather than a click handler: the browser hands mpv:// to the
+        // protocol handler itself, and the url stays visible and copyable.
+        const mpvBtn = document.createElement("a");
+        mpvBtn.className = "mpv-btn";
+        mpvBtn.href = mpvUrl(url.href);
+        mpvBtn.textContent = "MPV";
+        mpvBtn.title = "Play in MPV (sends the page as Referer)";
+
         const downloadBtn = document.createElement("span");
         downloadBtn.className = "download-btn";
         downloadBtn.textContent = "⯆";
+        downloadBtn.title = "Download";
         downloadBtn.style.cssText = `
             margin-left: 10px;
             cursor: pointer;
         `;
 
-        div.append(typeLabel, link, durationLabel, downloadBtn);
+        div.append(typeLabel, link, durationLabel, mpvBtn, downloadBtn);
 
         link.addEventListener("click", async (e) => {
             // Plain click copies; ctrl/middle click still opens the link.
