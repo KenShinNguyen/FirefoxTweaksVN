@@ -1,14 +1,17 @@
 // ==UserScript==
 // @name         MPV-M3U8 Video Detector and Downloader
 // @name:en      MPV-M3U8 Video Detector and Downloader
-// @version      1.5.6
+// @version      1.6.0
+// @description     Detect m3u8 playlists and plain videos on any page and hand them to the m3u8 downloader. Detected links show up in a draggable panel; click a link to copy it, or the arrow to download.
 // @description:en  Automatically detect the m3u8 video of the page and download it completely. Once detected the m3u8 link, it will appear in the upper right corner of the page. Click download to jump to the m3u8 downloader.
 // @icon         https://tools.thatwind.com/favicon.png
 // @author       -
 // @namespace    https://tools.thatwind.com/
-// @homepage
+// @homepageURL  https://github.com/KenShinNguyen/FirefoxTweaksVN
+// @supportURL   https://github.com/KenShinNguyen/FirefoxTweaksVN/issues
+// @downloadURL  https://raw.githubusercontent.com/KenShinNguyen/FirefoxTweaksVN/main/userscript/m3u8.user.js
+// @updateURL    https://raw.githubusercontent.com/KenShinNguyen/FirefoxTweaksVN/main/userscript/m3u8.user.js
 // @match        *://*/*
-// @exclude      *://www.diancigaoshou.com/*
 // @connect      *
 // @grant        unsafeWindow
 // @grant        GM_openInTab
@@ -25,19 +28,32 @@
 // @run-at       document-start
 // ==/UserScript==
 
-// inline m3u8 parser to improve performance and longevity
-/*! @name m3u8-parser @version 4.7.1 @license Apache-2.0 */
-!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports,require("global/window")):"function"==typeof define&&define.amd?define(["exports","global/window"],e):e((t="undefined"!=typeof globalThis?globalThis:t||self).m3u8Parser={},t.window)}(this,(function(t,e){"use strict";function i(t){return t&&"object"==typeof t&&"default"in t?t:{default:t}}var r=i(e);var a=function(t,e){t.prototype=Object.create(e.prototype),t.prototype.constructor=t,t.__proto__=e},s=function(){function t(){this.listeners={}}var e=t.prototype;return e.on=function(t,e){this.listeners[t]||(this.listeners[t]=[]),this.listeners[t].push(e)},e.off=function(t,e){if(!this.listeners[t])return!1;var i=this.listeners[t].indexOf(e);return this.listeners[t]=this.listeners[t].slice(0),this.listeners[t].splice(i,1),i>-1},e.trigger=function(t){var e=this.listeners[t];if(e)if(2===arguments.length)for(var i=e.length,r=0;r<i;++r)e[r].call(this,arguments[1]);else for(var a=Array.prototype.slice.call(arguments,1),s=e.length,n=0;n<s;++n)e[n].apply(this,a)},e.dispose=function(){this.listeners={}},e.pipe=function(t){this.on("data",(function(e){t.push(e)}))},t}(),n=function(t){function e(){var e;return(e=t.call(this)||this).buffer="",e}return a(e,t),e.prototype.push=function(t){var e;for(this.buffer+=t,e=this.buffer.indexOf("\n");e>-1;e=this.buffer.indexOf("\n"))this.trigger("data",this.buffer.substring(0,e)),this.buffer=this.buffer.substring(e+1)},e}(s);var u=function(t,e,i){return t(i={path:e,exports:{},require:function(t,e){return function(){throw new Error("Dynamic requires are not currently supported by @rollup/plugin-commonjs")}(null==e&&i.path)}},i.exports),i.exports}((function(t){function e(){return t.exports=e=Object.assign||function(t){for(var e=1;e<arguments.length;e++){var i=arguments[e];for(var r in i)Object.prototype.hasOwnProperty.call(i,r)&&(t[r]=i[r])}return t},e.apply(this,arguments)}t.exports=e})),o=String.fromCharCode(9),g=function(t){var e=/([0-9.]*)?@?([0-9.]*)?/.exec(t||""),i={};return e[1]&&(i.length=parseInt(e[1],10)),e[2]&&(i.offset=parseInt(e[2],10)),i},f=function(t){for(var e,i=t.split(new RegExp('(?:^|,)((?:[^=]*)=(?:"[^"]*"|[^,]*))')),r={},a=i.length;a--;)""!==i[a]&&((e=/([^=]*)=(.*)/.exec(i[a]).slice(1))[0]=e[0].replace(/^\s+|\s+$/g,""),e[1]=e[1].replace(/^\s+|\s+$/g,""),e[1]=e[1].replace(/^['"](.*)['"]$/g,"$1"),r[e[0]]=e[1]);return r},p=function(t){function e(){var e;return(e=t.call(this)||this).customParsers=[],e.tagMappers=[],e}a(e,t);var i=e.prototype;return i.push=function(t){var e,i,r=this;0!==(t=t.trim()).length&&("#"===t[0]?this.tagMappers.reduce((function(e,i){var r=i(t);return r===t?e:e.concat([r])}),[t]).forEach((function(t){for(var a=0;a<r.customParsers.length;a++)if(r.customParsers[a].call(r,t))return;if(0===t.indexOf("#EXT"))if(t=t.replace("\r",""),e=/^#EXTM3U/.exec(t))r.trigger("data",{type:"tag",tagType:"m3u"});else{if(e=/^#EXTINF:?([0-9\.]*)?,?(.*)?$/.exec(t))return i={type:"tag",tagType:"inf"},e[1]&&(i.duration=parseFloat(e[1])),e[2]&&(i.title=e[2]),void r.trigger("data",i);if(e=/^#EXT-X-TARGETDURATION:?([0-9.]*)?/.exec(t))return i={type:"tag",tagType:"targetduration"},e[1]&&(i.duration=parseInt(e[1],10)),void r.trigger("data",i);if(e=/^#EXT-X-VERSION:?([0-9.]*)?/.exec(t))return i={type:"tag",tagType:"version"},e[1]&&(i.version=parseInt(e[1],10)),void r.trigger("data",i);if(e=/^#EXT-X-MEDIA-SEQUENCE:?(\-?[0-9.]*)?/.exec(t))return i={type:"tag",tagType:"media-sequence"},e[1]&&(i.number=parseInt(e[1],10)),void r.trigger("data",i);if(e=/^#EXT-X-DISCONTINUITY-SEQUENCE:?(\-?[0-9.]*)?/.exec(t))return i={type:"tag",tagType:"discontinuity-sequence"},e[1]&&(i.number=parseInt(e[1],10)),void r.trigger("data",i);if(e=/^#EXT-X-PLAYLIST-TYPE:?(.*)?$/.exec(t))return i={type:"tag",tagType:"playlist-type"},e[1]&&(i.playlistType=e[1]),void r.trigger("data",i);if(e=/^#EXT-X-BYTERANGE:?(.*)?$/.exec(t))return i=u(g(e[1]),{type:"tag",tagType:"byterange"}),void r.trigger("data",i);if(e=/^#EXT-X-ALLOW-CACHE:?(YES|NO)?/.exec(t))return i={type:"tag",tagType:"allow-cache"},e[1]&&(i.allowed=!/NO/.test(e[1])),void r.trigger("data",i);if(e=/^#EXT-X-MAP:?(.*)$/.exec(t)){if(i={type:"tag",tagType:"map"},e[1]){var s=f(e[1]);s.URI&&(i.uri=s.URI),s.BYTERANGE&&(i.byterange=g(s.BYTERANGE))}r.trigger("data",i)}else if(e=/^#EXT-X-STREAM-INF:?(.*)$/.exec(t)){if(i={type:"tag",tagType:"stream-inf"},e[1]){if(i.attributes=f(e[1]),i.attributes.RESOLUTION){var n=i.attributes.RESOLUTION.split("x"),p={};n[0]&&(p.width=parseInt(n[0],10)),n[1]&&(p.height=parseInt(n[1],10)),i.attributes.RESOLUTION=p}i.attributes.BANDWIDTH&&(i.attributes.BANDWIDTH=parseInt(i.attributes.BANDWIDTH,10)),i.attributes["PROGRAM-ID"]&&(i.attributes["PROGRAM-ID"]=parseInt(i.attributes["PROGRAM-ID"],10))}r.trigger("data",i)}else{if(e=/^#EXT-X-MEDIA:?(.*)$/.exec(t))return i={type:"tag",tagType:"media"},e[1]&&(i.attributes=f(e[1])),void r.trigger("data",i);if(e=/^#EXT-X-ENDLIST/.exec(t))r.trigger("data",{type:"tag",tagType:"endlist"});else if(e=/^#EXT-X-DISCONTINUITY/.exec(t))r.trigger("data",{type:"tag",tagType:"discontinuity"});else{if(e=/^#EXT-X-PROGRAM-DATE-TIME:?(.*)$/.exec(t))return i={type:"tag",tagType:"program-date-time"},e[1]&&(i.dateTimeString=e[1],i.dateTimeObject=new Date(e[1])),void r.trigger("data",i);if(e=/^#EXT-X-KEY:?(.*)$/.exec(t))return i={type:"tag",tagType:"key"},e[1]&&(i.attributes=f(e[1]),i.attributes.IV&&("0x"===i.attributes.IV.substring(0,2).toLowerCase()&&(i.attributes.IV=i.attributes.IV.substring(2)),i.attributes.IV=i.attributes.IV.match(/.{8}/g),i.attributes.IV[0]=parseInt(i.attributes.IV[0],16),i.attributes.IV[1]=parseInt(i.attributes.IV[1],16),i.attributes.IV[2]=parseInt(i.attributes.IV[2],16),i.attributes.IV[3]=parseInt(i.attributes.IV[3],16),i.attributes.IV=new Uint32Array(i.attributes.IV))),void r.trigger("data",i);if(e=/^#EXT-X-START:?(.*)$/.exec(t))return i={type:"tag",tagType:"start"},e[1]&&(i.attributes=f(e[1]),i.attributes["TIME-OFFSET"]=parseFloat(i.attributes["TIME-OFFSET"]),i.attributes.PRECISE=/YES/.test(i.attributes.PRECISE)),void r.trigger("data",i);if(e=/^#EXT-X-CUE-OUT-CONT:?(.*)?$/.exec(t))return i={type:"tag",tagType:"cue-out-cont"},e[1]?i.data=e[1]:i.data="",void r.trigger("data",i);if(e=/^#EXT-X-CUE-OUT:?(.*)?$/.exec(t))return i={type:"tag",tagType:"cue-out"},e[1]?i.data=e[1]:i.data="",void r.trigger("data",i);if(e=/^#EXT-X-CUE-IN:?(.*)?$/.exec(t))return i={type:"tag",tagType:"cue-in"},e[1]?i.data=e[1]:i.data="",void r.trigger("data",i);if((e=/^#EXT-X-SKIP:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"skip"}).attributes=f(e[1]),i.attributes.hasOwnProperty("SKIPPED-SEGMENTS")&&(i.attributes["SKIPPED-SEGMENTS"]=parseInt(i.attributes["SKIPPED-SEGMENTS"],10)),i.attributes.hasOwnProperty("RECENTLY-REMOVED-DATERANGES")&&(i.attributes["RECENTLY-REMOVED-DATERANGES"]=i.attributes["RECENTLY-REMOVED-DATERANGES"].split(o)),void r.trigger("data",i);if((e=/^#EXT-X-PART:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"part"}).attributes=f(e[1]),["DURATION"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),["INDEPENDENT","GAP"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=/YES/.test(i.attributes[t]))})),i.attributes.hasOwnProperty("BYTERANGE")&&(i.attributes.byterange=g(i.attributes.BYTERANGE)),void r.trigger("data",i);if((e=/^#EXT-X-SERVER-CONTROL:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"server-control"}).attributes=f(e[1]),["CAN-SKIP-UNTIL","PART-HOLD-BACK","HOLD-BACK"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),["CAN-SKIP-DATERANGES","CAN-BLOCK-RELOAD"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=/YES/.test(i.attributes[t]))})),void r.trigger("data",i);if((e=/^#EXT-X-PART-INF:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"part-inf"}).attributes=f(e[1]),["PART-TARGET"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),void r.trigger("data",i);if((e=/^#EXT-X-PRELOAD-HINT:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"preload-hint"}).attributes=f(e[1]),["BYTERANGE-START","BYTERANGE-LENGTH"].forEach((function(t){if(i.attributes.hasOwnProperty(t)){i.attributes[t]=parseInt(i.attributes[t],10);var e="BYTERANGE-LENGTH"===t?"length":"offset";i.attributes.byterange=i.attributes.byterange||{},i.attributes.byterange[e]=i.attributes[t],delete i.attributes[t]}})),void r.trigger("data",i);if((e=/^#EXT-X-RENDITION-REPORT:(.*)$/.exec(t))&&e[1])return(i={type:"tag",tagType:"rendition-report"}).attributes=f(e[1]),["LAST-MSN","LAST-PART"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseInt(i.attributes[t],10))})),void r.trigger("data",i);r.trigger("data",{type:"tag",data:t.slice(4)})}}}else r.trigger("data",{type:"comment",text:t.slice(1)})})):this.trigger("data",{type:"uri",uri:t}))},i.addParser=function(t){var e=this,i=t.expression,r=t.customType,a=t.dataParser,s=t.segment;"function"!=typeof a&&(a=function(t){return t}),this.customParsers.push((function(t){if(i.exec(t))return e.trigger("data",{type:"custom",data:a(t),customType:r,segment:s}),!0}))},i.addTagMapper=function(t){var e=t.expression,i=t.map;this.tagMappers.push((function(t){return e.test(t)?i(t):t}))},e}(s);var c=function(t){if(void 0===t)throw new ReferenceError("this hasn't been initialised - super() hasn't been called");return t};function d(t){for(var e,i=(e=t,r.default.atob?r.default.atob(e):Buffer.from(e,"base64").toString("binary")),a=new Uint8Array(i.length),s=0;s<i.length;s++)a[s]=i.charCodeAt(s);return a}var h=function(t){var e={};return Object.keys(t).forEach((function(i){var r;e[(r=i,r.toLowerCase().replace(/-(\w)/g,(function(t){return t[1].toUpperCase()})))]=t[i]})),e},l=function(t){var e=t.serverControl,i=t.targetDuration,r=t.partTargetDuration;if(e){var a="#EXT-X-SERVER-CONTROL",s="holdBack",n="partHoldBack",u=i&&3*i,o=r&&2*r;i&&!e.hasOwnProperty(s)&&(e[s]=u,this.trigger("info",{message:a+" defaulting HOLD-BACK to targetDuration * 3 ("+u+")."})),u&&e[s]<u&&(this.trigger("warn",{message:a+" clamping HOLD-BACK ("+e[s]+") to targetDuration * 3 ("+u+")"}),e[s]=u),r&&!e.hasOwnProperty(n)&&(e[n]=3*r,this.trigger("info",{message:a+" defaulting PART-HOLD-BACK to partTargetDuration * 3 ("+e[n]+")."})),r&&e[n]<o&&(this.trigger("warn",{message:a+" clamping PART-HOLD-BACK ("+e[n]+") to partTargetDuration * 2 ("+o+")."}),e[n]=o)}},b=function(t){function e(){var e;(e=t.call(this)||this).lineStream=new n,e.parseStream=new p,e.lineStream.pipe(e.parseStream);var i,r,a=c(e),s=[],o={},g=!1,f=function(){},b={AUDIO:{},VIDEO:{},"CLOSED-CAPTIONS":{},SUBTITLES:{}},E=0;e.manifest={allowCache:!0,discontinuityStarts:[],segments:[]};var T=0,m=0;return e.on("end",(function(){o.uri||!o.parts&&!o.preloadHints||(!o.map&&i&&(o.map=i),!o.key&&r&&(o.key=r),o.timeline||"number"!=typeof E||(o.timeline=E),e.manifest.preloadSegment=o)})),e.parseStream.on("data",(function(t){var e,n;({tag:function(){({version:function(){t.version&&(this.manifest.version=t.version)},"allow-cache":function(){this.manifest.allowCache=t.allowed,"allowed"in t||(this.trigger("info",{message:"defaulting allowCache to YES"}),this.manifest.allowCache=!0)},byterange:function(){var e={};"length"in t&&(o.byterange=e,e.length=t.length,"offset"in t||(t.offset=T)),"offset"in t&&(o.byterange=e,e.offset=t.offset),T=e.offset+e.length},endlist:function(){this.manifest.endList=!0},inf:function(){"mediaSequence"in this.manifest||(this.manifest.mediaSequence=0,this.trigger("info",{message:"defaulting media sequence to zero"})),"discontinuitySequence"in this.manifest||(this.manifest.discontinuitySequence=0,this.trigger("info",{message:"defaulting discontinuity sequence to zero"})),t.duration>0&&(o.duration=t.duration),0===t.duration&&(o.duration=.01,this.trigger("info",{message:"updating zero segment duration to a small value"})),this.manifest.segments=s},key:function(){if(t.attributes)if("NONE"!==t.attributes.METHOD)if(t.attributes.URI){if("com.apple.streamingkeydelivery"===t.attributes.KEYFORMAT)return this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.apple.fps.1_0"]={attributes:t.attributes});if("com.microsoft.playready"===t.attributes.KEYFORMAT)return this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.microsoft.playready"]={uri:t.attributes.URI});if("urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"===t.attributes.KEYFORMAT){return-1===["SAMPLE-AES","SAMPLE-AES-CTR","SAMPLE-AES-CENC"].indexOf(t.attributes.METHOD)?void this.trigger("warn",{message:"invalid key method provided for Widevine"}):("SAMPLE-AES-CENC"===t.attributes.METHOD&&this.trigger("warn",{message:"SAMPLE-AES-CENC is deprecated, please use SAMPLE-AES-CTR instead"}),"data:text/plain;base64,"!==t.attributes.URI.substring(0,23)?void this.trigger("warn",{message:"invalid key URI provided for Widevine"}):t.attributes.KEYID&&"0x"===t.attributes.KEYID.substring(0,2)?(this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.widevine.alpha"]={attributes:{schemeIdUri:t.attributes.KEYFORMAT,keyId:t.attributes.KEYID.substring(2)},pssh:d(t.attributes.URI.split(",")[1])})):void this.trigger("warn",{message:"invalid key ID provided for Widevine"}))}t.attributes.METHOD||this.trigger("warn",{message:"defaulting key method to AES-128"}),r={method:t.attributes.METHOD||"AES-128",uri:t.attributes.URI},void 0!==t.attributes.IV&&(r.iv=t.attributes.IV)}else this.trigger("warn",{message:"ignoring key declaration without URI"});else r=null;else this.trigger("warn",{message:"ignoring key declaration without attribute list"})},"media-sequence":function(){isFinite(t.number)?this.manifest.mediaSequence=t.number:this.trigger("warn",{message:"ignoring invalid media sequence: "+t.number})},"discontinuity-sequence":function(){isFinite(t.number)?(this.manifest.discontinuitySequence=t.number,E=t.number):this.trigger("warn",{message:"ignoring invalid discontinuity sequence: "+t.number})},"playlist-type":function(){/VOD|EVENT/.test(t.playlistType)?this.manifest.playlistType=t.playlistType:this.trigger("warn",{message:"ignoring unknown playlist type: "+t.playlist})},map:function(){i={},t.uri&&(i.uri=t.uri),t.byterange&&(i.byterange=t.byterange),r&&(i.key=r)},"stream-inf":function(){this.manifest.playlists=s,this.manifest.mediaGroups=this.manifest.mediaGroups||b,t.attributes?(o.attributes||(o.attributes={}),u(o.attributes,t.attributes)):this.trigger("warn",{message:"ignoring empty stream-inf attributes"})},media:function(){if(this.manifest.mediaGroups=this.manifest.mediaGroups||b,t.attributes&&t.attributes.TYPE&&t.attributes["GROUP-ID"]&&t.attributes.NAME){var i=this.manifest.mediaGroups[t.attributes.TYPE];i[t.attributes["GROUP-ID"]]=i[t.attributes["GROUP-ID"]]||{},e=i[t.attributes["GROUP-ID"]],(n={default:/yes/i.test(t.attributes.DEFAULT)}).default?n.autoselect=!0:n.autoselect=/yes/i.test(t.attributes.AUTOSELECT),t.attributes.LANGUAGE&&(n.language=t.attributes.LANGUAGE),t.attributes.URI&&(n.uri=t.attributes.URI),t.attributes["INSTREAM-ID"]&&(n.instreamId=t.attributes["INSTREAM-ID"]),t.attributes.CHARACTERISTICS&&(n.characteristics=t.attributes.CHARACTERISTICS),t.attributes.FORCED&&(n.forced=/yes/i.test(t.attributes.FORCED)),e[t.attributes.NAME]=n}else this.trigger("warn",{message:"ignoring incomplete or missing media group"})},discontinuity:function(){E+=1,o.discontinuity=!0,this.manifest.discontinuityStarts.push(s.length)},"program-date-time":function(){void 0===this.manifest.dateTimeString&&(this.manifest.dateTimeString=t.dateTimeString,this.manifest.dateTimeObject=t.dateTimeObject),o.dateTimeString=t.dateTimeString,o.dateTimeObject=t.dateTimeObject},targetduration:function(){!isFinite(t.duration)||t.duration<0?this.trigger("warn",{message:"ignoring invalid target duration: "+t.duration}):(this.manifest.targetDuration=t.duration,l.call(this,this.manifest))},start:function(){t.attributes&&!isNaN(t.attributes["TIME-OFFSET"])?this.manifest.start={timeOffset:t.attributes["TIME-OFFSET"],precise:t.attributes.PRECISE}:this.trigger("warn",{message:"ignoring start declaration without appropriate attribute list"})},"cue-out":function(){o.cueOut=t.data},"cue-out-cont":function(){o.cueOutCont=t.data},"cue-in":function(){o.cueIn=t.data},skip:function(){this.manifest.skip=h(t.attributes),this.warnOnMissingAttributes_("#EXT-X-SKIP",t.attributes,["SKIPPED-SEGMENTS"])},part:function(){var e=this;g=!0;var i=this.manifest.segments.length,r=h(t.attributes);o.parts=o.parts||[],o.parts.push(r),r.byterange&&(r.byterange.hasOwnProperty("offset")||(r.byterange.offset=m),m=r.byterange.offset+r.byterange.length);var a=o.parts.length-1;this.warnOnMissingAttributes_("#EXT-X-PART #"+a+" for segment #"+i,t.attributes,["URI","DURATION"]),this.manifest.renditionReports&&this.manifest.renditionReports.forEach((function(t,i){t.hasOwnProperty("lastPart")||e.trigger("warn",{message:"#EXT-X-RENDITION-REPORT #"+i+" lacks required attribute(s): LAST-PART"})}))},"server-control":function(){var e=this.manifest.serverControl=h(t.attributes);e.hasOwnProperty("canBlockReload")||(e.canBlockReload=!1,this.trigger("info",{message:"#EXT-X-SERVER-CONTROL defaulting CAN-BLOCK-RELOAD to false"})),l.call(this,this.manifest),e.canSkipDateranges&&!e.hasOwnProperty("canSkipUntil")&&this.trigger("warn",{message:"#EXT-X-SERVER-CONTROL lacks required attribute CAN-SKIP-UNTIL which is required when CAN-SKIP-DATERANGES is set"})},"preload-hint":function(){var e=this.manifest.segments.length,i=h(t.attributes),r=i.type&&"PART"===i.type;o.preloadHints=o.preloadHints||[],o.preloadHints.push(i),i.byterange&&(i.byterange.hasOwnProperty("offset")||(i.byterange.offset=r?m:0,r&&(m=i.byterange.offset+i.byterange.length)));var a=o.preloadHints.length-1;if(this.warnOnMissingAttributes_("#EXT-X-PRELOAD-HINT #"+a+" for segment #"+e,t.attributes,["TYPE","URI"]),i.type)for(var s=0;s<o.preloadHints.length-1;s++){var n=o.preloadHints[s];n.type&&(n.type===i.type&&this.trigger("warn",{message:"#EXT-X-PRELOAD-HINT #"+a+" for segment #"+e+" has the same TYPE "+i.type+" as preload hint #"+s}))}},"rendition-report":function(){var e=h(t.attributes);this.manifest.renditionReports=this.manifest.renditionReports||[],this.manifest.renditionReports.push(e);var i=this.manifest.renditionReports.length-1,r=["LAST-MSN","URI"];g&&r.push("LAST-PART"),this.warnOnMissingAttributes_("#EXT-X-RENDITION-REPORT #"+i,t.attributes,r)},"part-inf":function(){this.manifest.partInf=h(t.attributes),this.warnOnMissingAttributes_("#EXT-X-PART-INF",t.attributes,["PART-TARGET"]),this.manifest.partInf.partTarget&&(this.manifest.partTargetDuration=this.manifest.partInf.partTarget),l.call(this,this.manifest)}}[t.tagType]||f).call(a)},uri:function(){o.uri=t.uri,s.push(o),this.manifest.targetDuration&&!("duration"in o)&&(this.trigger("warn",{message:"defaulting segment duration to the target duration"}),o.duration=this.manifest.targetDuration),r&&(o.key=r),o.timeline=E,i&&(o.map=i),m=0,o={}},comment:function(){},custom:function(){t.segment?(o.custom=o.custom||{},o.custom[t.customType]=t.data):(this.manifest.custom=this.manifest.custom||{},this.manifest.custom[t.customType]=t.data)}})[t.type].call(a)})),e}a(e,t);var i=e.prototype;return i.warnOnMissingAttributes_=function(t,e,i){var r=[];i.forEach((function(t){e.hasOwnProperty(t)||r.push(t)})),r.length&&this.trigger("warn",{message:t+" lacks required attribute(s): "+r.join(", ")})},i.push=function(t){this.lineStream.push(t)},i.end=function(){this.lineStream.push("\n"),this.trigger("end")},i.addParser=function(t){this.parseStream.addParser(t)},i.addTagMapper=function(t){this.parseStream.addTagMapper(t)},e}(s);t.LineStream=n,t.ParseStream=p,t.Parser=b,Object.defineProperty(t,"__esModule",{value:!0})}));
-
 (function () {
     'use strict';
+
+    // m3u8-parser is inlined to improve performance and longevity. The bundle is a
+    // UMD build, so handing it a local `exports`/`module` keeps it off the globals.
+    const m3u8Parser = (function () {
+        const exports = {};
+        const module = { exports };
+/*! @name m3u8-parser @version 7.2.0 @license Apache-2.0 */
+!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"function"==typeof define&&define.amd?define(["exports"],e):e((t="undefined"!=typeof globalThis?globalThis:t||self).m3u8Parser={})}(this,(function(t){"use strict";var e=function(){function t(){this.listeners={}}var e=t.prototype;return e.on=function(t,e){this.listeners[t]||(this.listeners[t]=[]),this.listeners[t].push(e)},e.off=function(t,e){if(!this.listeners[t])return!1;var i=this.listeners[t].indexOf(e);return this.listeners[t]=this.listeners[t].slice(0),this.listeners[t].splice(i,1),i>-1},e.trigger=function(t){var e=this.listeners[t];if(e)if(2===arguments.length)for(var i=e.length,s=0;s<i;++s)e[s].call(this,arguments[1]);else for(var a=Array.prototype.slice.call(arguments,1),r=e.length,n=0;n<r;++n)e[n].apply(this,a)},e.dispose=function(){this.listeners={}},e.pipe=function(t){this.on("data",(function(e){t.push(e)}))},t}();class i extends e{constructor(){super(),this.buffer=""}push(t){let e;for(this.buffer+=t,e=this.buffer.indexOf("\n");e>-1;e=this.buffer.indexOf("\n"))this.trigger("data",this.buffer.substring(0,e)),this.buffer=this.buffer.substring(e+1)}}function s(){return a=s=Object.assign||function(t){for(var e=1;e<arguments.length;e++){var i=arguments[e];for(var s in i)Object.prototype.hasOwnProperty.call(i,s)&&(t[s]=i[s])}return t},s.apply(this,arguments)}var a=s,r=a;const n=String.fromCharCode(9),u=function(t){const e=/([0-9.]*)?@?([0-9.]*)?/.exec(t||""),i={};return e[1]&&(i.length=parseInt(e[1],10)),e[2]&&(i.offset=parseInt(e[2],10)),i},o=function(t){const e={};if(!t)return e;const i=t.split(new RegExp('(?:^|,)((?:[^=]*)=(?:"[^"]*"|[^,]*))'));let s,a=i.length;for(;a--;)""!==i[a]&&(s=/([^=]*)=(.*)/.exec(i[a]).slice(1),s[0]=s[0].replace(/^\s+|\s+$/g,""),s[1]=s[1].replace(/^\s+|\s+$/g,""),s[1]=s[1].replace(/^['"](.*)['"]$/g,"$1"),e[s[0]]=s[1]);return e},g=t=>{const e=t.split("x"),i={};return e[0]&&(i.width=parseInt(e[0],10)),e[1]&&(i.height=parseInt(e[1],10)),i};class h extends e{constructor(){super(),this.customParsers=[],this.tagMappers=[]}push(t){let e,i;if(0===(t=t.trim()).length)return;if("#"!==t[0])return void this.trigger("data",{type:"uri",uri:t});this.tagMappers.reduce(((e,i)=>{const s=i(t);return s===t?e:e.concat([s])}),[t]).forEach((t=>{for(let e=0;e<this.customParsers.length;e++)if(this.customParsers[e].call(this,t))return;if(0===t.indexOf("#EXT"))if(t=t.replace("\r",""),e=/^#EXTM3U/.exec(t),e)this.trigger("data",{type:"tag",tagType:"m3u"});else{if(e=/^#EXTINF:([0-9\.]*)?,?(.*)?$/.exec(t),e)return i={type:"tag",tagType:"inf"},e[1]&&(i.duration=parseFloat(e[1])),e[2]&&(i.title=e[2]),void this.trigger("data",i);if(e=/^#EXT-X-TARGETDURATION:([0-9.]*)?/.exec(t),e)return i={type:"tag",tagType:"targetduration"},e[1]&&(i.duration=parseInt(e[1],10)),void this.trigger("data",i);if(e=/^#EXT-X-VERSION:([0-9.]*)?/.exec(t),e)return i={type:"tag",tagType:"version"},e[1]&&(i.version=parseInt(e[1],10)),void this.trigger("data",i);if(e=/^#EXT-X-MEDIA-SEQUENCE:(\-?[0-9.]*)?/.exec(t),e)return i={type:"tag",tagType:"media-sequence"},e[1]&&(i.number=parseInt(e[1],10)),void this.trigger("data",i);if(e=/^#EXT-X-DISCONTINUITY-SEQUENCE:(\-?[0-9.]*)?/.exec(t),e)return i={type:"tag",tagType:"discontinuity-sequence"},e[1]&&(i.number=parseInt(e[1],10)),void this.trigger("data",i);if(e=/^#EXT-X-PLAYLIST-TYPE:(.*)?$/.exec(t),e)return i={type:"tag",tagType:"playlist-type"},e[1]&&(i.playlistType=e[1]),void this.trigger("data",i);if(e=/^#EXT-X-BYTERANGE:(.*)?$/.exec(t),e)return i=r(u(e[1]),{type:"tag",tagType:"byterange"}),void this.trigger("data",i);if(e=/^#EXT-X-ALLOW-CACHE:(YES|NO)?/.exec(t),e)return i={type:"tag",tagType:"allow-cache"},e[1]&&(i.allowed=!/NO/.test(e[1])),void this.trigger("data",i);if(e=/^#EXT-X-MAP:(.*)$/.exec(t),e){if(i={type:"tag",tagType:"map"},e[1]){const t=o(e[1]);t.URI&&(i.uri=t.URI),t.BYTERANGE&&(i.byterange=u(t.BYTERANGE))}this.trigger("data",i)}else{if(e=/^#EXT-X-STREAM-INF:(.*)$/.exec(t),e)return i={type:"tag",tagType:"stream-inf"},e[1]&&(i.attributes=o(e[1]),i.attributes.RESOLUTION&&(i.attributes.RESOLUTION=g(i.attributes.RESOLUTION)),i.attributes.BANDWIDTH&&(i.attributes.BANDWIDTH=parseInt(i.attributes.BANDWIDTH,10)),i.attributes["FRAME-RATE"]&&(i.attributes["FRAME-RATE"]=parseFloat(i.attributes["FRAME-RATE"])),i.attributes["PROGRAM-ID"]&&(i.attributes["PROGRAM-ID"]=parseInt(i.attributes["PROGRAM-ID"],10))),void this.trigger("data",i);if(e=/^#EXT-X-MEDIA:(.*)$/.exec(t),e)return i={type:"tag",tagType:"media"},e[1]&&(i.attributes=o(e[1])),void this.trigger("data",i);if(e=/^#EXT-X-ENDLIST/.exec(t),e)this.trigger("data",{type:"tag",tagType:"endlist"});else if(e=/^#EXT-X-DISCONTINUITY/.exec(t),e)this.trigger("data",{type:"tag",tagType:"discontinuity"});else{if(e=/^#EXT-X-PROGRAM-DATE-TIME:(.*)$/.exec(t),e)return i={type:"tag",tagType:"program-date-time"},e[1]&&(i.dateTimeString=e[1],i.dateTimeObject=new Date(e[1])),void this.trigger("data",i);if(e=/^#EXT-X-KEY:(.*)$/.exec(t),e)return i={type:"tag",tagType:"key"},e[1]&&(i.attributes=o(e[1]),i.attributes.IV&&("0x"===i.attributes.IV.substring(0,2).toLowerCase()&&(i.attributes.IV=i.attributes.IV.substring(2)),i.attributes.IV=i.attributes.IV.match(/.{8}/g),i.attributes.IV[0]=parseInt(i.attributes.IV[0],16),i.attributes.IV[1]=parseInt(i.attributes.IV[1],16),i.attributes.IV[2]=parseInt(i.attributes.IV[2],16),i.attributes.IV[3]=parseInt(i.attributes.IV[3],16),i.attributes.IV=new Uint32Array(i.attributes.IV))),void this.trigger("data",i);if(e=/^#EXT-X-START:(.*)$/.exec(t),e)return i={type:"tag",tagType:"start"},e[1]&&(i.attributes=o(e[1]),i.attributes["TIME-OFFSET"]=parseFloat(i.attributes["TIME-OFFSET"]),i.attributes.PRECISE=/YES/.test(i.attributes.PRECISE)),void this.trigger("data",i);if(e=/^#EXT-X-CUE-OUT-CONT:(.*)?$/.exec(t),e)return i={type:"tag",tagType:"cue-out-cont"},e[1]?i.data=e[1]:i.data="",void this.trigger("data",i);if(e=/^#EXT-X-CUE-OUT:(.*)?$/.exec(t),e)return i={type:"tag",tagType:"cue-out"},e[1]?i.data=e[1]:i.data="",void this.trigger("data",i);if(e=/^#EXT-X-CUE-IN:?(.*)?$/.exec(t),e)return i={type:"tag",tagType:"cue-in"},e[1]?i.data=e[1]:i.data="",void this.trigger("data",i);if(e=/^#EXT-X-SKIP:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"skip"},i.attributes=o(e[1]),i.attributes.hasOwnProperty("SKIPPED-SEGMENTS")&&(i.attributes["SKIPPED-SEGMENTS"]=parseInt(i.attributes["SKIPPED-SEGMENTS"],10)),i.attributes.hasOwnProperty("RECENTLY-REMOVED-DATERANGES")&&(i.attributes["RECENTLY-REMOVED-DATERANGES"]=i.attributes["RECENTLY-REMOVED-DATERANGES"].split(n)),void this.trigger("data",i);if(e=/^#EXT-X-PART:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"part"},i.attributes=o(e[1]),["DURATION"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),["INDEPENDENT","GAP"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=/YES/.test(i.attributes[t]))})),i.attributes.hasOwnProperty("BYTERANGE")&&(i.attributes.byterange=u(i.attributes.BYTERANGE)),void this.trigger("data",i);if(e=/^#EXT-X-SERVER-CONTROL:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"server-control"},i.attributes=o(e[1]),["CAN-SKIP-UNTIL","PART-HOLD-BACK","HOLD-BACK"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),["CAN-SKIP-DATERANGES","CAN-BLOCK-RELOAD"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=/YES/.test(i.attributes[t]))})),void this.trigger("data",i);if(e=/^#EXT-X-PART-INF:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"part-inf"},i.attributes=o(e[1]),["PART-TARGET"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),void this.trigger("data",i);if(e=/^#EXT-X-PRELOAD-HINT:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"preload-hint"},i.attributes=o(e[1]),["BYTERANGE-START","BYTERANGE-LENGTH"].forEach((function(t){if(i.attributes.hasOwnProperty(t)){i.attributes[t]=parseInt(i.attributes[t],10);const e="BYTERANGE-LENGTH"===t?"length":"offset";i.attributes.byterange=i.attributes.byterange||{},i.attributes.byterange[e]=i.attributes[t],delete i.attributes[t]}})),void this.trigger("data",i);if(e=/^#EXT-X-RENDITION-REPORT:(.*)$/.exec(t),e&&e[1])return i={type:"tag",tagType:"rendition-report"},i.attributes=o(e[1]),["LAST-MSN","LAST-PART"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseInt(i.attributes[t],10))})),void this.trigger("data",i);if(e=/^#EXT-X-DATERANGE:(.*)$/.exec(t),e&&e[1]){i={type:"tag",tagType:"daterange"},i.attributes=o(e[1]),["ID","CLASS"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=String(i.attributes[t]))})),["START-DATE","END-DATE"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=new Date(i.attributes[t]))})),["DURATION","PLANNED-DURATION"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=parseFloat(i.attributes[t]))})),["END-ON-NEXT"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=/YES/i.test(i.attributes[t]))})),["SCTE35-CMD"," SCTE35-OUT","SCTE35-IN"].forEach((function(t){i.attributes.hasOwnProperty(t)&&(i.attributes[t]=i.attributes[t].toString(16))}));const t=/^X-([A-Z]+-)+[A-Z]+$/;for(const e in i.attributes){if(!t.test(e))continue;const s=/[0-9A-Fa-f]{6}/g.test(i.attributes[e]),a=/^\d+(\.\d+)?$/.test(i.attributes[e]);i.attributes[e]=s?i.attributes[e].toString(16):a?parseFloat(i.attributes[e]):String(i.attributes[e])}this.trigger("data",i)}else if(e=/^#EXT-X-INDEPENDENT-SEGMENTS/.exec(t),e)this.trigger("data",{type:"tag",tagType:"independent-segments"});else if(e=/^#EXT-X-I-FRAMES-ONLY/.exec(t),e)this.trigger("data",{type:"tag",tagType:"i-frames-only"});else{if(e=/^#EXT-X-CONTENT-STEERING:(.*)$/.exec(t),e)return i={type:"tag",tagType:"content-steering"},i.attributes=o(e[1]),void this.trigger("data",i);if(e=/^#EXT-X-I-FRAME-STREAM-INF:(.*)$/.exec(t),e)return i={type:"tag",tagType:"i-frame-playlist"},i.attributes=o(e[1]),i.attributes.URI&&(i.uri=i.attributes.URI),i.attributes.BANDWIDTH&&(i.attributes.BANDWIDTH=parseInt(i.attributes.BANDWIDTH,10)),i.attributes.RESOLUTION&&(i.attributes.RESOLUTION=g(i.attributes.RESOLUTION)),i.attributes["AVERAGE-BANDWIDTH"]&&(i.attributes["AVERAGE-BANDWIDTH"]=parseInt(i.attributes["AVERAGE-BANDWIDTH"],10)),i.attributes["FRAME-RATE"]&&(i.attributes["FRAME-RATE"]=parseFloat(i.attributes["FRAME-RATE"])),void this.trigger("data",i);if(e=/^#EXT-X-DEFINE:(.*)$/.exec(t),e)return i={type:"tag",tagType:"define"},i.attributes=o(e[1]),void this.trigger("data",i);this.trigger("data",{type:"tag",data:t.slice(4)})}}}}else this.trigger("data",{type:"comment",text:t.slice(1)})}))}addParser({expression:t,customType:e,dataParser:i,segment:s}){"function"!=typeof i&&(i=t=>t),this.customParsers.push((a=>{if(t.exec(a))return this.trigger("data",{type:"custom",data:i(a),customType:e,segment:s}),!0}))}addTagMapper({expression:t,map:e}){this.tagMappers.push((i=>t.test(i)?e(i):i))}}function E(t){for(var e,i=(e=t,window.atob?window.atob(e):Buffer.from(e,"base64").toString("binary")),s=new Uint8Array(i.length),a=0;a<i.length;a++)s[a]=i.charCodeAt(a);return s}const d=function(t){const e={};return Object.keys(t).forEach((function(i){var s;e[(s=i,s.toLowerCase().replace(/-(\w)/g,(t=>t[1].toUpperCase())))]=t[i]})),e},f=function(t){const{serverControl:e,targetDuration:i,partTargetDuration:s}=t;if(!e)return;const a="#EXT-X-SERVER-CONTROL",r="holdBack",n="partHoldBack",u=i&&3*i,o=s&&2*s;i&&!e.hasOwnProperty(r)&&(e[r]=u,this.trigger("info",{message:`${a} defaulting HOLD-BACK to targetDuration * 3 (${u}).`})),u&&e[r]<u&&(this.trigger("warn",{message:`${a} clamping HOLD-BACK (${e[r]}) to targetDuration * 3 (${u})`}),e[r]=u),s&&!e.hasOwnProperty(n)&&(e[n]=3*s,this.trigger("info",{message:`${a} defaulting PART-HOLD-BACK to partTargetDuration * 3 (${e[n]}).`})),s&&e[n]<o&&(this.trigger("warn",{message:`${a} clamping PART-HOLD-BACK (${e[n]}) to partTargetDuration * 2 (${o}).`}),e[n]=o)};t.LineStream=i,t.ParseStream=h,t.Parser=class extends e{constructor(t={}){super(),this.lineStream=new i,this.parseStream=new h,this.lineStream.pipe(this.parseStream),this.mainDefinitions=t.mainDefinitions||{},this.params=new URL(t.uri,"https://a.com").searchParams,this.lastProgramDateTime=null;const e=this,s=[];let a,n,u={},o=!1;const g=function(){},p={AUDIO:{},VIDEO:{},"CLOSED-CAPTIONS":{},SUBTITLES:{}};let T=0;this.manifest={allowCache:!0,discontinuityStarts:[],dateRanges:[],iFramePlaylists:[],segments:[]};let m=0,b=0;const c={};this.on("end",(()=>{u.uri||!u.parts&&!u.preloadHints||(!u.map&&a&&(u.map=a),!u.key&&n&&(u.key=n),u.timeline||"number"!=typeof T||(u.timeline=T),this.manifest.preloadSegment=u)})),this.parseStream.on("data",(function(t){let i,h;if(e.manifest.definitions)for(const i in e.manifest.definitions)if(t.uri&&(t.uri=t.uri.replace(`{${i}}`,e.manifest.definitions[i])),t.attributes)for(const s in t.attributes)"string"==typeof t.attributes[s]&&(t.attributes[s]=t.attributes[s].replace(`{${i}}`,e.manifest.definitions[i]));({tag(){({version(){t.version&&(this.manifest.version=t.version)},"allow-cache"(){this.manifest.allowCache=t.allowed,"allowed"in t||(this.trigger("info",{message:"defaulting allowCache to YES"}),this.manifest.allowCache=!0)},byterange(){const e={};"length"in t&&(u.byterange=e,e.length=t.length,"offset"in t||(t.offset=m)),"offset"in t&&(u.byterange=e,e.offset=t.offset),m=e.offset+e.length},endlist(){this.manifest.endList=!0},inf(){"mediaSequence"in this.manifest||(this.manifest.mediaSequence=0,this.trigger("info",{message:"defaulting media sequence to zero"})),"discontinuitySequence"in this.manifest||(this.manifest.discontinuitySequence=0,this.trigger("info",{message:"defaulting discontinuity sequence to zero"})),t.title&&(u.title=t.title),t.duration>0&&(u.duration=t.duration),0===t.duration&&(u.duration=.01,this.trigger("info",{message:"updating zero segment duration to a small value"})),this.manifest.segments=s},key(){if(t.attributes)if("NONE"!==t.attributes.METHOD)if(t.attributes.URI){if("com.apple.streamingkeydelivery"===t.attributes.KEYFORMAT)return this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.apple.fps.1_0"]={attributes:t.attributes});if("com.microsoft.playready"===t.attributes.KEYFORMAT)return this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.microsoft.playready"]={uri:t.attributes.URI});if("urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"===t.attributes.KEYFORMAT){return-1===["SAMPLE-AES","SAMPLE-AES-CTR","SAMPLE-AES-CENC"].indexOf(t.attributes.METHOD)?void this.trigger("warn",{message:"invalid key method provided for Widevine"}):("SAMPLE-AES-CENC"===t.attributes.METHOD&&this.trigger("warn",{message:"SAMPLE-AES-CENC is deprecated, please use SAMPLE-AES-CTR instead"}),"data:text/plain;base64,"!==t.attributes.URI.substring(0,23)?void this.trigger("warn",{message:"invalid key URI provided for Widevine"}):t.attributes.KEYID&&"0x"===t.attributes.KEYID.substring(0,2)?(this.manifest.contentProtection=this.manifest.contentProtection||{},void(this.manifest.contentProtection["com.widevine.alpha"]={attributes:{schemeIdUri:t.attributes.KEYFORMAT,keyId:t.attributes.KEYID.substring(2)},pssh:E(t.attributes.URI.split(",")[1])})):void this.trigger("warn",{message:"invalid key ID provided for Widevine"}))}t.attributes.METHOD||this.trigger("warn",{message:"defaulting key method to AES-128"}),n={method:t.attributes.METHOD||"AES-128",uri:t.attributes.URI},void 0!==t.attributes.IV&&(n.iv=t.attributes.IV)}else this.trigger("warn",{message:"ignoring key declaration without URI"});else n=null;else this.trigger("warn",{message:"ignoring key declaration without attribute list"})},"media-sequence"(){isFinite(t.number)?this.manifest.mediaSequence=t.number:this.trigger("warn",{message:"ignoring invalid media sequence: "+t.number})},"discontinuity-sequence"(){isFinite(t.number)?(this.manifest.discontinuitySequence=t.number,T=t.number):this.trigger("warn",{message:"ignoring invalid discontinuity sequence: "+t.number})},"playlist-type"(){/VOD|EVENT/.test(t.playlistType)?this.manifest.playlistType=t.playlistType:this.trigger("warn",{message:"ignoring unknown playlist type: "+t.playlist})},map(){a={},t.uri&&(a.uri=t.uri),t.byterange&&(a.byterange=t.byterange),n&&(a.key=n)},"stream-inf"(){this.manifest.playlists=s,this.manifest.mediaGroups=this.manifest.mediaGroups||p,t.attributes?(u.attributes||(u.attributes={}),r(u.attributes,t.attributes)):this.trigger("warn",{message:"ignoring empty stream-inf attributes"})},media(){if(this.manifest.mediaGroups=this.manifest.mediaGroups||p,!(t.attributes&&t.attributes.TYPE&&t.attributes["GROUP-ID"]&&t.attributes.NAME))return void this.trigger("warn",{message:"ignoring incomplete or missing media group"});const e=this.manifest.mediaGroups[t.attributes.TYPE];e[t.attributes["GROUP-ID"]]=e[t.attributes["GROUP-ID"]]||{},i=e[t.attributes["GROUP-ID"]],h={default:/yes/i.test(t.attributes.DEFAULT)},h.default?h.autoselect=!0:h.autoselect=/yes/i.test(t.attributes.AUTOSELECT),t.attributes.LANGUAGE&&(h.language=t.attributes.LANGUAGE),t.attributes.URI&&(h.uri=t.attributes.URI),t.attributes["INSTREAM-ID"]&&(h.instreamId=t.attributes["INSTREAM-ID"]),t.attributes.CHARACTERISTICS&&(h.characteristics=t.attributes.CHARACTERISTICS),t.attributes.FORCED&&(h.forced=/yes/i.test(t.attributes.FORCED)),i[t.attributes.NAME]=h},discontinuity(){T+=1,u.discontinuity=!0,this.manifest.discontinuityStarts.push(s.length)},"program-date-time"(){void 0===this.manifest.dateTimeString&&(this.manifest.dateTimeString=t.dateTimeString,this.manifest.dateTimeObject=t.dateTimeObject),u.dateTimeString=t.dateTimeString,u.dateTimeObject=t.dateTimeObject;const{lastProgramDateTime:e}=this;this.lastProgramDateTime=new Date(t.dateTimeString).getTime(),null===e&&this.manifest.segments.reduceRight(((t,e)=>(e.programDateTime=t-1e3*e.duration,e.programDateTime)),this.lastProgramDateTime)},targetduration(){!isFinite(t.duration)||t.duration<0?this.trigger("warn",{message:"ignoring invalid target duration: "+t.duration}):(this.manifest.targetDuration=t.duration,f.call(this,this.manifest))},start(){t.attributes&&!isNaN(t.attributes["TIME-OFFSET"])?this.manifest.start={timeOffset:t.attributes["TIME-OFFSET"],precise:t.attributes.PRECISE}:this.trigger("warn",{message:"ignoring start declaration without appropriate attribute list"})},"cue-out"(){u.cueOut=t.data},"cue-out-cont"(){u.cueOutCont=t.data},"cue-in"(){u.cueIn=t.data},skip(){this.manifest.skip=d(t.attributes),this.warnOnMissingAttributes_("#EXT-X-SKIP",t.attributes,["SKIPPED-SEGMENTS"])},part(){o=!0;const e=this.manifest.segments.length,i=d(t.attributes);u.parts=u.parts||[],u.parts.push(i),i.byterange&&(i.byterange.hasOwnProperty("offset")||(i.byterange.offset=b),b=i.byterange.offset+i.byterange.length);const s=u.parts.length-1;this.warnOnMissingAttributes_(`#EXT-X-PART #${s} for segment #${e}`,t.attributes,["URI","DURATION"]),this.manifest.renditionReports&&this.manifest.renditionReports.forEach(((t,e)=>{t.hasOwnProperty("lastPart")||this.trigger("warn",{message:`#EXT-X-RENDITION-REPORT #${e} lacks required attribute(s): LAST-PART`})}))},"server-control"(){const e=this.manifest.serverControl=d(t.attributes);e.hasOwnProperty("canBlockReload")||(e.canBlockReload=!1,this.trigger("info",{message:"#EXT-X-SERVER-CONTROL defaulting CAN-BLOCK-RELOAD to false"})),f.call(this,this.manifest),e.canSkipDateranges&&!e.hasOwnProperty("canSkipUntil")&&this.trigger("warn",{message:"#EXT-X-SERVER-CONTROL lacks required attribute CAN-SKIP-UNTIL which is required when CAN-SKIP-DATERANGES is set"})},"preload-hint"(){const e=this.manifest.segments.length,i=d(t.attributes),s=i.type&&"PART"===i.type;u.preloadHints=u.preloadHints||[],u.preloadHints.push(i),i.byterange&&(i.byterange.hasOwnProperty("offset")||(i.byterange.offset=s?b:0,s&&(b=i.byterange.offset+i.byterange.length)));const a=u.preloadHints.length-1;if(this.warnOnMissingAttributes_(`#EXT-X-PRELOAD-HINT #${a} for segment #${e}`,t.attributes,["TYPE","URI"]),i.type)for(let t=0;t<u.preloadHints.length-1;t++){const s=u.preloadHints[t];s.type&&(s.type===i.type&&this.trigger("warn",{message:`#EXT-X-PRELOAD-HINT #${a} for segment #${e} has the same TYPE ${i.type} as preload hint #${t}`}))}},"rendition-report"(){const e=d(t.attributes);this.manifest.renditionReports=this.manifest.renditionReports||[],this.manifest.renditionReports.push(e);const i=this.manifest.renditionReports.length-1,s=["LAST-MSN","URI"];o&&s.push("LAST-PART"),this.warnOnMissingAttributes_(`#EXT-X-RENDITION-REPORT #${i}`,t.attributes,s)},"part-inf"(){this.manifest.partInf=d(t.attributes),this.warnOnMissingAttributes_("#EXT-X-PART-INF",t.attributes,["PART-TARGET"]),this.manifest.partInf.partTarget&&(this.manifest.partTargetDuration=this.manifest.partInf.partTarget),f.call(this,this.manifest)},daterange(){this.manifest.dateRanges.push(d(t.attributes));const e=this.manifest.dateRanges.length-1;this.warnOnMissingAttributes_(`#EXT-X-DATERANGE #${e}`,t.attributes,["ID","START-DATE"]);const i=this.manifest.dateRanges[e];i.endDate&&i.startDate&&new Date(i.endDate)<new Date(i.startDate)&&this.trigger("warn",{message:"EXT-X-DATERANGE END-DATE must be equal to or later than the value of the START-DATE"}),i.duration&&i.duration<0&&this.trigger("warn",{message:"EXT-X-DATERANGE DURATION must not be negative"}),i.plannedDuration&&i.plannedDuration<0&&this.trigger("warn",{message:"EXT-X-DATERANGE PLANNED-DURATION must not be negative"});const s=!!i.endOnNext;if(s&&!i.class&&this.trigger("warn",{message:"EXT-X-DATERANGE with an END-ON-NEXT=YES attribute must have a CLASS attribute"}),s&&(i.duration||i.endDate)&&this.trigger("warn",{message:"EXT-X-DATERANGE with an END-ON-NEXT=YES attribute must not contain DURATION or END-DATE attributes"}),i.duration&&i.endDate){const t=i.startDate.getTime()+1e3*i.duration;this.manifest.dateRanges[e].endDate=new Date(t)}if(c[i.id]){for(const t in c[i.id])if(i[t]&&JSON.stringify(c[i.id][t])!==JSON.stringify(i[t])){this.trigger("warn",{message:"EXT-X-DATERANGE tags with the same ID in a playlist must have the same attributes values"});break}const t=this.manifest.dateRanges.findIndex((t=>t.id===i.id));this.manifest.dateRanges[t]=r(this.manifest.dateRanges[t],i),c[i.id]=r(c[i.id],i),this.manifest.dateRanges.pop()}else c[i.id]=i},"independent-segments"(){this.manifest.independentSegments=!0},"i-frames-only"(){this.manifest.iFramesOnly=!0,this.requiredCompatibilityversion(this.manifest.version,4)},"content-steering"(){this.manifest.contentSteering=d(t.attributes),this.warnOnMissingAttributes_("#EXT-X-CONTENT-STEERING",t.attributes,["SERVER-URI"])},define(){this.manifest.definitions=this.manifest.definitions||{};const e=(t,e)=>{t in this.manifest.definitions?this.trigger("error",{message:`EXT-X-DEFINE: Duplicate name ${t}`}):this.manifest.definitions[t]=e};if("QUERYPARAM"in t.attributes){if("NAME"in t.attributes||"IMPORT"in t.attributes)return void this.trigger("error",{message:"EXT-X-DEFINE: Invalid attributes"});const i=this.params.get(t.attributes.QUERYPARAM);return i?void e(t.attributes.QUERYPARAM,decodeURIComponent(i)):void this.trigger("error",{message:`EXT-X-DEFINE: No query param ${t.attributes.QUERYPARAM}`})}return"NAME"in t.attributes?"IMPORT"in t.attributes?void this.trigger("error",{message:"EXT-X-DEFINE: Invalid attributes"}):"VALUE"in t.attributes&&"string"==typeof t.attributes.VALUE?void e(t.attributes.NAME,t.attributes.VALUE):void this.trigger("error",{message:`EXT-X-DEFINE: No value for ${t.attributes.NAME}`}):"IMPORT"in t.attributes?this.mainDefinitions[t.attributes.IMPORT]?void e(t.attributes.IMPORT,this.mainDefinitions[t.attributes.IMPORT]):void this.trigger("error",{message:`EXT-X-DEFINE: No value ${t.attributes.IMPORT} to import, or IMPORT used on main playlist`}):void this.trigger("error",{message:"EXT-X-DEFINE: No attribute"})},"i-frame-playlist"(){this.manifest.iFramePlaylists.push({attributes:t.attributes,uri:t.uri,timeline:T}),this.warnOnMissingAttributes_("#EXT-X-I-FRAME-STREAM-INF",t.attributes,["BANDWIDTH","URI"])}}[t.tagType]||g).call(e)},uri(){u.uri=t.uri,s.push(u),this.manifest.targetDuration&&!("duration"in u)&&(this.trigger("warn",{message:"defaulting segment duration to the target duration"}),u.duration=this.manifest.targetDuration),n&&(u.key=n),u.timeline=T,a&&(u.map=a),b=0,null!==this.lastProgramDateTime&&(u.programDateTime=this.lastProgramDateTime,this.lastProgramDateTime+=1e3*u.duration),u={}},comment(){},custom(){t.segment?(u.custom=u.custom||{},u.custom[t.customType]=t.data):(this.manifest.custom=this.manifest.custom||{},this.manifest.custom[t.customType]=t.data)}})[t.type].call(e)}))}requiredCompatibilityversion(t,e){(t<e||!t)&&this.trigger("warn",{message:`manifest must be at least version ${e}`})}warnOnMissingAttributes_(t,e,i){const s=[];i.forEach((function(t){e.hasOwnProperty(t)||s.push(t)})),s.length&&this.trigger("warn",{message:`${t} lacks required attribute(s): ${s.join(", ")}`})}push(t){this.lineStream.push(t)}end(){this.lineStream.push("\n"),this.manifest.dateRanges.length&&null===this.lastProgramDateTime&&this.trigger("warn",{message:"A playlist with EXT-X-DATERANGE tag must contain atleast one EXT-X-PROGRAM-DATE-TIME tag"}),this.lastProgramDateTime=null,this.trigger("end")}addParser(t){this.parseStream.addParser(t)}addTagMapper(t){this.parseStream.addTagMapper(t)}},Object.defineProperty(t,"__esModule",{value:!0})}));
+        return exports;
+    })();
+
+    // Some managers start the script before <html> exists, so nothing may assume
+    // document.documentElement is already there.
+    function appendToRoot(node) {
+        if (document.documentElement) document.documentElement.appendChild(node);
+        else setTimeout(() => appendToRoot(node), 0);
+    }
 
     const mgmapi = {
 
         addStyle(s) {
             let style = document.createElement("style");
             style.innerHTML = s;
-            document.documentElement.appendChild(style);
+            appendToRoot(style);
         },
         async getValue(name, defaultVal) {
             return await ((typeof GM_getValue === "function") ? GM_getValue : GM.getValue)(name, defaultVal);
@@ -55,31 +71,38 @@
             return ((typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest : GM.xmlHttpRequest)(details);
         },
         download(details) {
-
-            return this.openInTab(details.url);
-
             if (typeof GM_download === "function") {
                 this.message("下载中，请留意浏览器下载弹窗\nDownloading, pay attention to the browser's download pop-up.", 3000);
-                return GM_download(details);
-            } else {
-                this.openInTab(details.url);
+                try {
+                    return GM_download(details);
+                } catch {
+                    // Some managers reject the request outright (header policy, missing
+                    // permission); fall back to opening the file in a tab.
+                }
             }
+            return this.openInTab(details.url);
         },
-        copyText(text) {
-            copyTextToClipboard(text);
-            function copyTextToClipboard(text) {
-                // 复制文本
-                var copyFrom = document.createElement("textarea");
-                copyFrom.textContent = text;
-                document.body.appendChild(copyFrom);
-                copyFrom.select();
-                document.execCommand('copy');
-                copyFrom.blur();
-                document.body.removeChild(copyFrom);
+        async copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch {
+                // Clipboard API needs a secure context and permission; fall through.
             }
+            const host = document.body || document.documentElement;
+            if (!host) return;
+            const copyFrom = document.createElement("textarea");
+            copyFrom.textContent = text;
+            host.appendChild(copyFrom);
+            copyFrom.select();
+            document.execCommand('copy');
+            copyFrom.blur();
+            host.removeChild(copyFrom);
         },
         message(text, disappearTime = 5000) {
             const id = "f8243rd238-gm-message-panel";
+            const host = document.body || document.documentElement;
+            if (!host) return;
             let p = document.querySelector(`#${id}`);
             if (!p) {
                 p = document.createElement("div");
@@ -93,7 +116,7 @@
                     align-items: end;
                     z-index: 999999999999999;
                 `;
-                (document.body || document.documentElement).appendChild(p);
+                host.appendChild(p);
             }
             let mdiv = document.createElement("div");
             mdiv.innerText = text;
@@ -109,7 +132,7 @@
             `;
             p.appendChild(mdiv);
             setTimeout(() => {
-                p.removeChild(mdiv);
+                if (mdiv.parentNode) mdiv.parentNode.removeChild(mdiv);
             }, disappearTime);
         }
     };
@@ -119,11 +142,12 @@
         mgmapi.addStyle("#userscript-tip{display:none !important;}");
 
         // 对请求做代理
+        // Proxy requests the downloader page cannot make itself (CORS).
         const _fetch = unsafeWindow.fetch;
         unsafeWindow.fetch = async function (...args) {
             try {
                 let response = await _fetch(...args);
-                if (response.status !== 200) throw new Error(response.status);
+                if (!response.ok) throw new Error(response.status);
                 return response;
             } catch (e) {
                 // 失败请求使用代理
@@ -133,11 +157,15 @@
                         let referer = new URLSearchParams(location.hash.slice(1)).get("referer");
                         let headers = {};
                         if (referer) {
-                            referer = new URL(referer);
-                            headers = {
-                                "origin": referer.origin,
-                                "referer": referer.href
-                            };
+                            try {
+                                referer = new URL(referer);
+                                headers = {
+                                    "origin": referer.origin,
+                                    "referer": referer.href
+                                };
+                            } catch {
+                                // Malformed referer in the hash: send the request without it.
+                            }
                         }
                         mgmapi.xmlHttpRequest({
                             method: "GET",
@@ -147,7 +175,7 @@
                             onload(r) {
                                 resolve({
                                     status: r.status,
-                                    headers: new Headers(r.responseHeaders.split("\n").filter(n => n).map(s => s.split(/:\s*/)).reduce((all, [a, b]) => { all[a] = b; return all; }, {})),
+                                    headers: new Headers(String(r.responseHeaders || "").split(/\r?\n/).filter(n => n.includes(":")).map(s => s.split(/:\s*/)).reduce((all, [a, ...b]) => { all[a] = b.join(":"); return all; }, {})),
                                     async text() {
                                         return r.responseText;
                                     },
@@ -157,7 +185,7 @@
                                 });
                             },
                             onerror() {
-                                reject(new Error());
+                                reject(new Error(`proxy request failed: ${args[0]}`));
                             }
                         });
                     });
@@ -173,104 +201,81 @@
 
     // iframe 信息交流
     // 目前只用于获取顶部标题
+    // iframe messaging, used only to read the top frame's title.
+    const TITLE_REQUEST = "3j4t9uj349-gm-get-title";
+    const TITLE_RESPONSE = "3j4t9uj349-gm-top-title-name:";
+
     window.addEventListener("message", async (e) => {
-        if (e.data === "3j4t9uj349-gm-get-title") {
-            let name = `top-title-${Date.now()}`;
-            await mgmapi.setValue(name, document.title);
-            e.source.postMessage(`3j4t9uj349-gm-top-title-name:${name}`, "*");
-        }
+        if (e.data !== TITLE_REQUEST || !e.source) return;
+        const name = `top-title-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await mgmapi.setValue(name, document.title);
+        // Any frame can ask, so drop the key even when the asker never reads it —
+        // otherwise storage grows without bound.
+        setTimeout(() => mgmapi.deleteValue(name), 30000);
+        e.source.postMessage(TITLE_RESPONSE + name, "*");
     });
 
     function getTopTitle() {
         return new Promise(resolve => {
-            window.addEventListener("message", async function l(e) {
-                if (typeof e.data === "string") {
-                    if (e.data.startsWith("3j4t9uj349-gm-top-title-name:")) {
-                        let name = e.data.slice("3j4t9uj349-gm-top-title-name:".length);
-                        await new Promise(r => setTimeout(r, 5)); // 等5毫秒 确定 setValue 已经写入
-                        resolve(await mgmapi.getValue(name));
-                        mgmapi.deleteValue(name);
-                        window.removeEventListener("message", l);
-                    }
-                }
-            });
-            window.top.postMessage("3j4t9uj349-gm-get-title", "*");
+            let settled = false;
+            const finish = (title) => {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener("message", onMessage);
+                resolve(title || "");
+            };
+
+            async function onMessage(e) {
+                if (typeof e.data !== "string" || !e.data.startsWith(TITLE_RESPONSE)) return;
+                const name = e.data.slice(TITLE_RESPONSE.length);
+                await new Promise(r => setTimeout(r, 5)); // 等5毫秒 确定 setValue 已经写入
+                finish(await mgmapi.getValue(name));
+                mgmapi.deleteValue(name);
+            }
+
+            window.addEventListener("message", onMessage);
+            // Never leave a download click hanging when the top frame does not answer.
+            setTimeout(() => finish(""), 2000);
+            try {
+                window.top.postMessage(TITLE_REQUEST, "*");
+            } catch {
+                finish("");
+            }
         });
     }
 
 
-    {
-        // 请求检测
-        // const _fetch = self.fetch;
-        // self.fetch = function (...args) {
-        //     if (checkUrl(args[0])) doM3U({ url: args[0] });
-        //     return _fetch(...args);
-        // }
-        // overriding fetch could be dangerous and slow, only apply to socolive
-        if (location.href.match(/^.*?socolive.*?$/)) {
-        var sfetch = unsafeWindow.fetch;
-        unsafeWindow.fetch = new Proxy(sfetch, {
-            apply: function(target, thisArg, args) {
-                console.log(target, thisArg, args);
-                let proceed = true;
-                try {
-                    if (args[0].indexOf(".flv") != -1) doM3U({ url: args[0], content: args[0] });
-                } catch(ex) {
-                    console.log(ex);
-                }
-                return proceed
-                    ? Reflect.apply(target, thisArg, args)
-                    : Promise.resolve(new Response());
+    let count = 0;
+    const shownUrls = new Set();
+
+    function downloaderUrl(m3u8, filename) {
+        return `https://tools.thatwind.com/tool/m3u8downloader#${new URLSearchParams({
+            m3u8,
+            referer: location.href,
+            filename: filename || ""
+        })}`;
+    }
+
+    function formatDuration(seconds) {
+        // Live streams report Infinity, and an unparsed manifest reports 0.
+        if (!Number.isFinite(seconds) || seconds <= 0) return "未知(unknown)";
+        return `${Math.ceil(seconds * 10 / 60) / 10} mins`;
+    }
+
+    // The frame url is only worth listing once this frame turns out to hold media,
+    // otherwise every ad and tracking iframe on the page adds a row.
+    let iframeListed = false;
+    function listIframeOnce() {
+        if (iframeListed || window.top === window.self) return;
+        iframeListed = true;
+        showVideo({
+            type: "iframe",
+            url: new URL(location.href),
+            duration: "unknown",
+            async download() {
+                mgmapi.openInTab(downloaderUrl(location.href, await getTopTitle()));
             }
         });
-        }
-        const _r_text = unsafeWindow.Response.prototype.text;
-        unsafeWindow.Response.prototype.text = function () {
-            return new Promise((resolve, reject) => {
-                _r_text.call(this).then((text) => {
-                    resolve(text);
-                    if (checkContent(text)) { 
-                      GM_xmlhttpRequest({method: "POST",url: "https://paste.centos.org/","headers": {"Content-Type": "application/x-www-form-urlencoded"},data: "name=&title=&lang=text&code="+encodeURIComponent(text)+"&expire=120&submit=submit",onload: function(response) {showVideo({type: 'M3U8', url: new URL(response.responseText.match(/<a class="control" href="([^"]*?)">View Raw<\/a>/)[1]), duration: 'null' });}});
-                      doM3U({ url: this.url, content: text }); }
-                    if (checkUrl(this.url)) doM3U({ url: this.url });
-                }).catch(reject);
-            });
-        }
-
-        const _open = unsafeWindow.XMLHttpRequest.prototype.open;
-        unsafeWindow.XMLHttpRequest.prototype.open = function (...args) {
-            this.addEventListener("load", () => {
-                try {
-                    let content = this.responseText;
-                    if (checkContent(content)) {
-                      GM_xmlhttpRequest({method: "POST",url: "https://paste.centos.org/","headers": {"Content-Type": "application/x-www-form-urlencoded"},data: "name=&title=&lang=text&code="+encodeURIComponent(content)+"&expire=120&submit=submit",onload: function(response) {showVideo({type: 'M3U8', url: new URL(response.responseText.match(/<a class="control" href="([^"]*?)">View Raw<\/a>/)[1]), duration: 'null' });}});
-                      doM3U({ url: args[1], content: content });
-                    }
-                } catch { }
-            });
-            if (checkUrl(args[1])) doM3U({ url: args[1] });
-            return _open.apply(this, args);
-        }
-
-
-        function checkUrl(url) {
-            url = new URL(url, location.href);
-            if (url.pathname.indexOf(".m3u8") != -1 || url.pathname.indexOf(".m3u") != -1) {
-                // 发现
-                return true;
-            }
-        }
-
-        function checkContent(content) {
-            if (content.trim().startsWith("#EXTM3U")) {
-                return true;
-            }
-        }
-
-
-        // 检查纯视频
-        setInterval(doVideos, 1000);
-
     }
 
     const rootDiv = document.createElement("div");
@@ -280,14 +285,14 @@
         opacity: 0.9;
     `;
     rootDiv.style.display = "none";
-    document.documentElement.appendChild(rootDiv);
+    appendToRoot(rootDiv);
 
     const shadowDOM = rootDiv.attachShadow({ mode: 'open' });
     const wrapper = document.createElement("div");
     shadowDOM.appendChild(wrapper);
 
 
-    // 指示器
+    // 指示器 / counter badge
     const bar = document.createElement("div");
     bar.style = `
         text-align: right;
@@ -339,7 +344,7 @@
 
     wrapper.appendChild(bar);
 
-    // 样式
+    // 样式 / styles
     const style = document.createElement("style");
 
     style.innerHTML = `
@@ -410,16 +415,16 @@
 
     const barBtn = bar.querySelector(".number-indicator");
 
-    // 关于显隐和移动
+    // 关于显隐和移动 / visibility and dragging
 
     (async function () {
 
-        let shown = await GM_getValue("shown", true);
+        let shown = await mgmapi.getValue("shown", true);
         wrapper.setAttribute("data-shown", shown);
 
 
-        let x = await GM_getValue("x", 10);
-        let y = await GM_getValue("y", 10);
+        let x = await mgmapi.getValue("x", 10);
+        let y = await mgmapi.getValue("y", 10);
 
         x = Math.min(innerWidth - 50, x);
         y = Math.min(innerHeight - 50, y);
@@ -475,149 +480,240 @@
 
 
 
-    let count = 0;
-    let shownUrls = [];
+    {
+        // 请求检测 / request detection
+        // Overriding fetch outright is risky and slow, so it is limited to socolive.
+        if (location.href.includes("socolive")) {
+            const _socoFetch = unsafeWindow.fetch;
+            unsafeWindow.fetch = new Proxy(_socoFetch, {
+                apply: function (target, thisArg, args) {
+                    try {
+                        const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url);
+                        // Pass the url as content so doM3U does not try to parse a flv stream.
+                        if (url && url.includes(".flv")) doM3U({ url, content: url, type: "flv" });
+                    } catch {
+                        // Detection must never break the page's own fetch.
+                    }
+                    return Reflect.apply(target, thisArg, args);
+                }
+            });
+        }
 
-    if (window.top !== window.self) {
-        showVideo({
-            type: "iframe",
-            url: new URL(location.href),
-            duration: "unknown",
-            async download() {
-                mgmapi.openInTab(
-                    `https://tools.thatwind.com/tool/m3u8downloader#${new URLSearchParams({
-                        m3u8: url.href,
-                        referer: location.href,
-                        filename: (await getTopTitle()) || ""
-                    })}`
-                );
+        const _r_text = unsafeWindow.Response.prototype.text;
+        unsafeWindow.Response.prototype.text = function () {
+            return new Promise((resolve, reject) => {
+                _r_text.call(this).then((text) => {
+                    resolve(text);
+                    try {
+                        if (checkContent(text)) doM3U({ url: this.url, content: text });
+                        else if (checkUrl(this.url)) doM3U({ url: this.url });
+                    } catch {
+                        // Never surface detection errors to the page.
+                    }
+                }).catch(reject);
+            });
+        }
+
+        const _open = unsafeWindow.XMLHttpRequest.prototype.open;
+        unsafeWindow.XMLHttpRequest.prototype.open = function (...args) {
+            const requestUrl = args[1];
+            this.addEventListener("load", () => {
+                try {
+                    // responseText only exists for the default and "text" response types.
+                    if (this.responseType && this.responseType !== "text") return;
+                    const content = this.responseText;
+                    if (checkContent(content)) doM3U({ url: requestUrl, content });
+                } catch { }
+            });
+            try {
+                if (checkUrl(requestUrl)) doM3U({ url: requestUrl });
+            } catch {
+                // A throw here would break the page's XMLHttpRequest.
             }
-        });
+            return _open.apply(this, args);
+        }
+
+
+        function checkUrl(url) {
+            if (!url) return false;
+            let parsed;
+            try {
+                parsed = new URL(url, location.href);
+            } catch {
+                return false;
+            }
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+            // 发现 / found one
+            return parsed.pathname.includes(".m3u8") || parsed.pathname.includes(".m3u");
+        }
+
+        function checkContent(content) {
+            // Look at the head only: a response body can be megabytes long.
+            return typeof content === "string" && content.slice(0, 64).trim().startsWith("#EXTM3U");
+        }
+
+
+        // 检查纯视频 / poll for plain <video> elements
+        setInterval(doVideos, 1000);
+
     }
+
     function doVideos() {
 
         for (let v of Array.from(document.querySelectorAll("video"))) {
-            if (v.duration && v.src && v.src.startsWith("http") && (!shownUrls.includes(v.src))) {
-                const src = v.src;
+            // currentSrc also covers <source> children, which v.src misses.
+            const src = v.currentSrc || v.src;
+            if (!v.duration || !src || !src.startsWith("http") || shownUrls.has(src)) continue;
 
-                shownUrls.push(src);
-                showVideo({
-                    type: "video",
-                    url: new URL(src),
-                    duration: `${Math.ceil(v.duration * 10 / 60) / 10} mins`,
-                    download() {
-                        const details = {
-                            url: src,
-                            name: (() => {
-                                let name = new URL(src).pathname.split("/").slice(-1)[0];
-                                if (!/\.\w+$/.test(name)) {
-                                    if (name.match(/^\s*$/)) name = Date.now();
-                                    name = name + ".mp4";
-                                }
-                                return name;
-                            })(),
-                            headers: {
-                                // referer: location.origin, // 不允许该头
-                                origin: location.origin
-                            },
-                            onerror(e) {
-                                mgmapi.openInTab(src);
-                            }
-                        };
-                        mgmapi.download(details);
-                    }
-                })
-            }
+            listIframeOnce();
+            showVideo({
+                type: "video",
+                url: new URL(src),
+                duration: formatDuration(v.duration),
+                download() {
+                    mgmapi.download({
+                        url: src,
+                        name: buildFileName(src),
+                        headers: {
+                            // referer: location.origin, // 不允许该头
+                            origin: location.origin
+                        },
+                        onerror(e) {
+                            mgmapi.openInTab(src);
+                        }
+                    });
+                }
+            })
         }
     }
 
-    async function doM3U({ url, content }) {
+    function buildFileName(src) {
+        let name = "";
+        try {
+            name = new URL(src).pathname.split("/").pop() || "";
+        } catch { }
+        if (!/\.\w+$/.test(name)) {
+            if (name.match(/^\s*$/)) name = String(Date.now());
+            name = name + ".mp4";
+        }
+        return name;
+    }
 
-        url = new URL(url);
+    async function doM3U({ url, content, type = "m3u8" }) {
 
-        if (shownUrls.includes(url.href)) return;
-
-        // 解析 m3u
-        content = content || await (await fetch(url)).text();
-
-        const parser = new m3u8Parser.Parser();
-        parser.push(content);
-        parser.end();
-        const manifest = parser.manifest;
-
-        if (manifest.segments) {
-            let duration = 0;
-            manifest.segments.forEach((segment) => {
-                duration += segment.duration;
-            });
-            manifest.duration = duration;
+        let parsed;
+        try {
+            parsed = new URL(url, location.href);
+        } catch {
+            return;
         }
 
-        showVideo({
-            type: "m3u8",
-            url,
-            duration: manifest.duration ? `${Math.ceil(manifest.duration * 10 / 60) / 10} mins` : manifest.playlists ? `多(Multi)(${manifest.playlists.length})` : "未知(unknown)",
-            async download() {
-                mgmapi.openInTab(
-                    `https://tools.thatwind.com/tool/m3u8downloader#${new URLSearchParams({
-                        m3u8: url.href,
-                        referer: location.href,
-                        filename: (await getTopTitle()) || ""
-                    })}`
-                );
+        if (shownUrls.has(parsed.href)) return;
+        // Claim the url before awaiting anything: the fetch below re-enters this
+        // function through the patched Response.prototype.text.
+        shownUrls.add(parsed.href);
+
+        try {
+            // 解析 m3u / parse the playlist
+            if (!content) content = await (await fetch(parsed.href)).text();
+
+            // Passing the uri lets the parser resolve EXT-X-DEFINE query params.
+            const parser = new m3u8Parser.Parser({ uri: parsed.href });
+            parser.push(content);
+            parser.end();
+            const manifest = parser.manifest;
+
+            let duration;
+            if (manifest.segments && manifest.segments.length) {
+                duration = formatDuration(manifest.segments.reduce((total, segment) => total + (segment.duration || 0), 0));
+            } else if (manifest.playlists && manifest.playlists.length) {
+                duration = `多(Multi)(${manifest.playlists.length})`;
+            } else {
+                duration = "未知(unknown)";
             }
-        })
+
+            listIframeOnce();
+            showVideo({
+                type,
+                url: parsed,
+                duration,
+                async download() {
+                    mgmapi.openInTab(downloaderUrl(parsed.href, await getTopTitle()));
+                }
+            })
+        } catch {
+            // Release the url so a later detection of the same stream can retry.
+            shownUrls.delete(parsed.href);
+        }
 
     }
 
 
 
-    async function showVideo({
+    function showVideo({
         type,
         url,
         duration,
         download
     }) {
-        let div = document.createElement("div");
+        const div = document.createElement("div");
         div.className = "m3u8-item";
-        div.innerHTML = `
-            <span>${type}</span>
-            <a class="copy-link" href="${url.href}" title="${url}" style="
-                color: white;
-                max-width: 200px;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                overflow: hidden;
-                margin-left: 10px;
-                cursor:pointer;"
-            target="_blank" >${url.pathname}</a>
-            <span
-                style="
-                    margin-left: 10px;
-                    flex-grow: 1;
-                "
-            >${duration}</span>
-            <span
-                class="download-btn"
-                style="
-                    margin-left: 10px;
-                    cursor: pointer;
-            ">⯆</span>
+
+        const typeLabel = document.createElement("span");
+        typeLabel.textContent = type;
+
+        // Built node by node rather than through innerHTML: url and type come from
+        // whatever the page requested.
+        const link = document.createElement("a");
+        link.className = "copy-link";
+        link.href = url.href;
+        link.title = url.href;
+        link.target = "_blank";
+        link.rel = "noreferrer noopener";
+        link.textContent = url.pathname + url.search;
+        link.style.cssText = `
+            color: white;
+            max-width: 200px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+            margin-left: 10px;
+            cursor: pointer;
         `;
 
-        div.querySelector(".copy-link").addEventListener("click", () => {
+        const durationLabel = document.createElement("span");
+        durationLabel.textContent = duration;
+        durationLabel.style.cssText = `
+            margin-left: 10px;
+            flex-grow: 1;
+        `;
+
+        const downloadBtn = document.createElement("span");
+        downloadBtn.className = "download-btn";
+        downloadBtn.textContent = "⯆";
+        downloadBtn.style.cssText = `
+            margin-left: 10px;
+            cursor: pointer;
+        `;
+
+        div.append(typeLabel, link, durationLabel, downloadBtn);
+
+        link.addEventListener("click", async (e) => {
+            // Plain click copies; ctrl/middle click still opens the link.
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
             // 复制链接
-            mgmapi.copyText(url.href);
+            await mgmapi.copyText(url.href);
             mgmapi.message("已复制链接 (link copied)", 2000);
         });
 
-        div.querySelector(".download-btn").addEventListener("click", download);
+        downloadBtn.addEventListener("click", download);
 
         rootDiv.style.display = "block";
 
         count++;
 
-        shownUrls.push(url.href);
+        shownUrls.add(url.href);
 
         bar.querySelector(".number-indicator").setAttribute("data-number", count);
 
@@ -625,174 +721,3 @@
     }
 
 })();
-/*
-(function () {
-    'use strict';
-
-    const reg = /magnet:\?xt=urn:btih:\w{10,}([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/;
-
-    let l = navigator.language || "en";
-    if (l.startsWith("en-")) l = "en";
-    else if (l.startsWith("zh-")) l = "zh-CN";
-    else l = "en";
-
-    const T = {
-        "en": {
-            play: "Play"
-        },
-        "zh-CN": {
-            play: '播放'
-        }
-    }[l];
-
-    whenDOMReady(() => {
-        addStyle(`
-            button[data-wtmzjk-mag-url]{
-                all: initial;
-                border: none;
-                outline: none;
-                background: none;
-                background: #f7d308;
-                background: #08a6f7;
-                margin: 2px 8px;
-                border-radius: 3px;
-                color: white;
-                cursor: pointer;
-                display: inline-flex;
-                height: 1.6em;
-                padding: 0 .8em;
-                align-items: center;
-                justify-content: center;
-                transition: background .15s;
-                text-decoration: none;
-                border-radius: 0.8em;
-                font-size: small;
-            }
-            button[data-wtmzjk-mag-url]>svg{
-                height: 60%;
-                fill: white;
-                pointer-events: none;
-            }
-            button[data-wtmzjk-mag-url]:hover{
-                background: #fae157;
-                background: #39b9f9;
-            }
-            button[data-wtmzjk-mag-url]:active{
-                background: #dfbe07;
-                background: #0797df;
-            }
-            button[data-wtmzjk-mag-url]>span{
-                pointer-events: none;
-                font-size: small;margin-right: .5em;font-weight:bold;color:white !important;
-            }
-        `);
-        window.addEventListener("click", onEvents, true);
-        window.addEventListener("mousedown", onEvents, true);
-        window.addEventListener("mouseup", onEvents, true);
-
-        watchBodyChange(work);
-    });
-
-    function onEvents(e) {
-        if (e.target.hasAttribute('data-wtmzjk-mag-url')) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.type == "click") {
-                let a = document.createElement('a');
-                a.href = 'https://www.diancigaoshou.com/#' + new URLSearchParams({ url: e.target.getAttribute('data-wtmzjk-mag-url') });
-                a.target = "_blank";
-                a.click();
-            }
-        }
-    }
-
-
-
-    function createWatchButton(url, isForPlain = false) {
-        let button = document.createElement("button");
-        button.setAttribute('data-wtmzjk-mag-url', url);
-        if (isForPlain) button.setAttribute('data-wtmzjk-button-for-plain', '');
-        button.innerHTML = `<span>${T.play}</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Pro 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg>`;
-        return button;
-    }
-
-    function hasPlainMagUrlThatNotHandled() {
-        let m = document.body.textContent.match(new RegExp(reg, 'g'));
-        return document.querySelectorAll(`[data-wtmzjk-button-for-plain]`).length != (m ? m.length : 0);
-    }
-
-    function work() {
-        if (!document.body) return;
-        if (hasPlainMagUrlThatNotHandled()) {
-            for (let node of getAllTextNodes(document.body)) {
-                if (node.nextSibling && node.nextSibling.hasAttribute && node.nextSibling.hasAttribute('data-wtmzjk-mag-url')) continue;
-                let text = node.nodeValue;
-                if (!reg.test(text)) continue;
-                let match = text.match(reg);
-                if (match) {
-                    let url = match[0];
-                    let p = node.parentNode;
-                    p.insertBefore(document.createTextNode(text.slice(0, match.index + url.length)), node);
-                    p.insertBefore(createWatchButton(url, true), node);
-                    p.insertBefore(document.createTextNode(text.slice(match.index + url.length)), node);
-                    p.removeChild(node);
-                }
-            }
-        }
-        for (let a of Array.from(document.querySelectorAll(
-            ['href', 'value', 'data-clipboard-text', 'data-value', 'title', 'alt', 'data-url', 'data-magnet', 'data-copy'].map(n => `[${n}*="magnet:?xt=urn:btih:"]`).join(',')
-        ))) {
-            if (a.nextSibling && a.nextSibling.hasAttribute && a.nextSibling.hasAttribute('data-wtmzjk-mag-url')) continue; // 已经添加
-            if (reg.test(a.textContent)) continue;
-            for (let attr of a.getAttributeNames()) {
-                let val = a.getAttribute(attr);
-                if (!reg.test(val)) continue;
-                let url = val.match(reg)[0];
-                a.parentNode.insertBefore(createWatchButton(url), a.nextSibling);
-            }
-        }
-    }
-
-
-    function watchBodyChange(onchange) {
-        let timeout;
-        let observer = new MutationObserver(() => {
-            if (!timeout) {
-                timeout = setTimeout(() => {
-                    timeout = null;
-                    onchange();
-                }, 200);
-            }
-        });
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            characterData: true
-        });
-
-    }
-
-    function getAllTextNodes(parent) {
-        var re = [];
-        if (["STYLE", "SCRIPT", "BASE", "COMMAND", "LINK", "META", "TITLE", "XTRANS-TXT", "XTRANS-TXT-GROUP", "XTRANS-POPUP"].includes(parent.tagName)) return re;
-        for (let node of parent.childNodes) {
-            if (node.childNodes.length) re = re.concat(getAllTextNodes(node));
-            else if (Text.prototype.isPrototypeOf(node) && (!node.nodeValue.match(/^\s*$/))) re.push(node);
-        }
-        return re;
-    }
-
-    function whenDOMReady(f) {
-        if (document.body) f();
-        else window.addEventListener("DOMContentLoaded", f);
-    }
-
-    function addStyle(s) {
-        let style = document.createElement("style");
-        style.innerHTML = s;
-        document.documentElement.appendChild(style);
-    }
-
-})();
-*/
