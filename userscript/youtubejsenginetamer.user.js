@@ -52,156 +52,62 @@
 //      FIX_CONTINUATION_IGNORE_COPY and can be switched back off.
 //   8. Object.prototype.root / __CE_shadowRoot are defined configurable so they
 //      can be removed again.
+//   9. The configuration block is regrouped into core / experimental / memory / debug.
+//      Same flags, same values, only the order and the comments changed.
+//  10. The element-pool probe restores Map.prototype.get / Set.prototype.has in a
+//      `finally`, so a throw cannot leave the page running on the probe's wrappers.
+//  11. propChecker() returns a verdict instead of only warning; STRICT_PROP_CHECK
+//      turns it into a real gate, and DEBUG_FN_INTEGRITY prints the fingerprints
+//      needed to pin something stronger than arity.
+//  12. stampedNodes / stampedFragment entries are evicted through a
+//      FinalizationRegistry (STAMPED_MAP_EVICTION) instead of growing for the life
+//      of the tab, and the window.showXxx debug helpers only reach the global
+//      namespace when DEBUG_EXPOSE_GLOBALS is on.
 
 (() => {
 
   /** @type {WeakMapConstructor} */
   const WeakMap = window.WeakMapOriginal || window.WeakMap;
 
-  const HOOK_ACTIVE_MODULES = true; // added in 0.37.0
-  const HOOK_ACTIVE_MODULES_fetchUpdatedMetadata = true; // added in 0.37.0 (make likeCount update)
-  
-  const NATIVE_CANVAS_ANIMATION = false; // for #cinematics
-  const FIX_schedulerInstanceInstance = 2 | 4;
-  const FIX_yt_player = true; // DONT CHANGE
-  const FIX_Animation_n_timeline = true;
-  const FIX_Animation_n_timeline_cinematic = true;
-  const FIX_ytScheduler = true;
+  // ---------------------------------------------------------------------------
+  //  Configuration
+  //
+  //  [VN fork] Same flags as upstream, regrouped so the shape of the script is
+  //  readable from the top: what it patches (core), what is still being tried
+  //  out (experimental), what it does about memory, and what only logs (debug).
+  //  Only the order and the comments changed - no flag was added, removed or
+  //  given a different value here.
+  // ---------------------------------------------------------------------------
+
+  // ===== CORE PATCHES / DOM ==================================================
+  // Native DOM surface: node insertion & removal, network, storage, style and layout.
+
+  const CHANGE_appendChild = true; // discussions#236759
+  const FIX_removeChild = true;
+  const OVERRIDE_isConnected = false; // [VN fork] upstream always installs this getter, yet Node.isConnectedOverrided is never assigned anywhere
+  const FIX_XHR_REQUESTING = true;
+  const SCRIPTLET_REMOVE_PRUNE_propNeedles = false; // [VN fork] upstream default true; it clears the adblocker scriptlet's propNeedles map
+  const FIX_error_many_stack = false; // [VN fork] upstream default true; it detects uBlock Origin / Brave json-prune scriptlets and disables them, and swaps JSON.parse
+  const DENY_requestStorageAccess = true; // remove document.requestStorageAccess
+  const DISABLE_IFRAME_requestStorageAccess = true; // no effect if DENY_requestStorageAccess is true
+  const REMOVE_BLANK_DUMMY_IFRAME = true;
   const NO_PRELOAD_GENERATE_204 = false;
   const ENABLE_COMPUTEDSTYLE_CACHE = true;
   const NO_SCHEDULING_DUE_TO_COMPUTEDSTYLE = true;
-  const CHANGE_appendChild = true; // discussions#236759
-  const FIX_bind_self_this = false; // EXPERIMENTAL !!!!! this affect page switch after live ends
-
-  const FIX_error_many_stack = false; // [VN fork] upstream default true; it detects uBlock Origin / Brave json-prune scriptlets and disables them, and swaps JSON.parse
-
-  const IGNORE_bindAnimationForCustomEffect = true; // prevent `v.bindAnimationForCustomEffect(this);` being executed
-
-  const FIX_ytdExpander_childrenChanged = true;
-  const FIX_paper_ripple_animate = true;
-  const FIX_avoid_incorrect_video_meta = true; // [legacy feature for rolling number fixing] 2025.05.10 - obsoleted -> y.fetchUpdatedMetadata(t, e.continuation)
-  const FIX_avoid_incorrect_video_meta_emitterBehavior = true; // [legacy feature for rolling number fixing] 2025.05.10 - obsoleted -> y.fetchUpdatedMetadata(t, e.continuation)
-
-  const FIX_doIdomRender = true;
-
-  const FIX_Shady = true;
-
-  // [[ 2024.04.24 ]]
-  const MODIFY_ShadyDOM_OBJ = true; // DON'T CHANGE. MUST BE TRUE
-  // << if MODIFY_ShadyDOM_OBJ >>
-  const WEAKREF_ShadyDOM = true;
-  const OMIT_ShadyDOM_EXPERIMENTAL = 1 | 0; // 1 => enable; 2 => composedPath
-  const OMIT_ShadyDOM_settings = 0 | 0 | 0; // 1: inUse; 2: handlesDynamicScoping; 4: force // {{ PRELIM TESTING PURPOSE }}
-  // << end >>
-
-  const WEAK_REF_BINDING_CONTROL = 1 | 2; // 2 - conflict control with ShadyDOM weakref
-
-  const FIX_ytAction_ = true; // ytd-app
-  const FIX_onVideoDataChange = false;
-  // const FIX_onClick = true;
-  const FIX_onStateChange = true;
-  const FIX_onLoopRangeChange = true;
-  // const FIX_maybeUpdateFlexibleMenu = true; // ytd-menu-renderer
-  const FIX_VideoEVENTS_v2 = true; // true might cause bug in switching page
-
-  const FIX_stampDomArray_ = true; // v0.30.0
-  const FIX_stampDomArray = FIX_stampDomArray_ && typeof WeakRef === "function" && typeof FinalizationRegistry === "function";
-  // const stampDomArray_MemoryFix_Flag001 = false;
-  const XFlag = true; // root issue tbc
-  
-  const MemoryFix_Flag002 = 1 | 2 | 4 | 8 | 0 | 32 | 64 | 0 | 256; 
-  // 32 required for new stampDomArray
-  // 128 to be tested
-
-  const FIX_perfNow = true; // history state issue; see https://bugzilla.mozilla.org/show_bug.cgi?id=1756970
-  const ENABLE_ASYNC_DISPATCHEVENT = false; // problematic
-
-  const FIX_Polymer_dom = true;
-  const FIX_Polymer_AF = true;
-
-  const SCRIPTLET_REMOVE_PRUNE_propNeedles = false; // [VN fork] upstream default true; it clears the adblocker scriptlet's propNeedles map
-  const DEBUG_removePrune = false; // true for DEBUG
-
-  const FIX_XHR_REQUESTING = true;
-
-  const LOG_FETCHMETA_UPDATE = false; // for DEBUG
-
-  const IGNORE_bufferhealth_CHECK = false; // experimental; true will make "Stats for nerds" no info.
-
-  const DENY_requestStorageAccess = true; // remove document.requestStorageAccess
-  const DISABLE_IFRAME_requestStorageAccess = true; // no effect if DENY_requestStorageAccess is true
-
-  const REMOVE_BLANK_DUMMY_IFRAME = true;
-
-  const DISABLE_COOLDOWN_SCROLLING = 3; // YT cause scroll hang in MacOS - 1 for enable, 2 for css hack
-
-  const FIX_removeChild = true;
-  const OVERRIDE_isConnected = false; // [VN fork] upstream always installs this getter, yet Node.isConnectedOverrided is never assigned anywhere
-  const FIX_fix_requestIdleCallback_timing = true;
-
   const HOOK_CSSPD_LEFT = true; // global css hack for style.left
-  const FORCE_NO_REUSEABLE_ELEMENT_POOL = true;
-
-  const FIX_TRANSCRIPT_SEGMENTS = true; // Based on Tabview Youtube's implementation
-  const FIX_MODERN_TRANSCRIPT_SEGMENTS = false; // placeholder only; requires FIX_XHR_REQUESTING
-  const DISABLE_MODERN_TRANSCRIPT = true; // modern transcript is incomplete feature as of 2026.05.03
-
-  const FIX_POPUP_UNIQUE_ID = true; // currently only for channel about popup;
-
-  // ------------------------------------------------------------------
-
-  const MEMORY_RELEASE_NF00 = false; // need investigation of the implementation (no time) -> disable
-  const MEMORY_RELEASE_NF00_SHOW_MESSAGE = false;
-  const MEMORY_RELEASE_MAP_SET_REMOVE_NODE = false; // [VN fork] upstream default true; only read behind MEMORY_RELEASE_NF00 (false) and by the showNM00/testNM00 debug helpers
-  const FULLY_REMOVE_ALL_EVENT_LISTENERS = false; // [VN fork] upstream default true, but requires MEMORY_RELEASE_NF00 which is false -> records every listener for nothing
-  const FUZZY_EVENT_LISTENER_REMOVAL = true;
-  const WEAK_CE_ROOT = true; // shadowRoot of the return value of attachShadow on the node
-
-  const FIX_TEMPLATE_BINDING = true;
-  const FIX_TEMPLATE_BINDING_SHOW_MESSAGE = false;
-
-  const FIX_SHADY_METHODS = true;
-  const FIX_FRAGEMENT_HOST = true;
-
-  const USE_fastDomIf = 2; // fastDomIf is seem to be experimental  0 = no change, 1 = enable, 2 = disable
-  const ENHANCE_DOMIF_createAndInsertInstance = true; // root does not need to store in the instance
-  const ENHANCE_DOMIF_TEARDOWN = true; // require MEMORY_RELEASE_NF00
-
-  const FIX_DOM_IF_DETACH = true;
-  const FIX_DOM_IF_REPEAT = true; // semi-experimental (added in 0.17.0)
-  const FIX_DOM_IF_TEMPLATE = true;
-  // const FIX_DOM_REPEAT_TEMPLATE = true; // to be implemented
-
-  const DEBUG_DBR847 = false;
-  const FIX_DOM_IFREPEAT_RenderDebouncerChange_SET_TO_PROPNAME = true; // default true. false might be required for future change
-
-  // --------
+  const DISABLE_COOLDOWN_SCROLLING = 3; // YT cause scroll hang in MacOS - 1 for enable, 2 for css hack
+  const FIX_VIDEO_PLAYER_MOUSEHOVER_EVENTS = true; // avoid unnecessary reflows due to cursor moves on the web player.
+  const FIX_ICON_RENDER = true;
+  const FIX_GUIDE_ICON = true;
+  const FIX_ACTIONS_TOOLTIPS = true;
+  const FIX_FlexibleItemSizing = true;
   // tp-yt-app-header, tp-yt-app-header-layout, yt-page-header-renderer, yt-page-header-view-model, ...
   // example: https://www.youtube.com/channel/UC5WKyq8V6qy1WqKi0jO97QA
   const FIX_RESIZED_HEADER_HEIGHT = true; // ensure performUpdate is called after _interestedResizables get resized * required for delayed rendering
   const ENHANCE_RESIZABLE_HEADER_LAYOUTING_WITH_NEXTTICK = true; // instead of RAF, just use nextTick
   const ENABLE_SUB_COMPONENT_RELAYOUT = true; // relayout the child components as well
-  // const ENABLE_FAST_SCROLLHANDLER = true; // smoother CSS effect
-  // --------
-
-  const FIX_ICON_RENDER = true;
-  const FIX_GUIDE_ICON = true;
-  const FIX_ACTIONS_TOOLTIPS = true;
-
-  const FIX_VIDEO_PLAYER_MOUSEHOVER_EVENTS = true; // avoid unnecessary reflows due to cursor moves on the web player.
-
-  const DISABLE_isLowLatencyLiveStream = false; // TBC
-
-  const FIX_FlexibleItemSizing = true;
-  
-  const FIX_ROLLING_NUMBER_UPDATE = true;
-
-  // [VN fork] copyPreviousContiuationToIgnored374() never ran upstream (see fix 7 in the header).
-  // Repairing it puts that continuation de-duplication back in play; set this to false to keep
-  // upstream's effective behaviour if like/view counters start refusing to update.
-  const FIX_CONTINUATION_IGNORE_COPY = true;
-
-
+  const FIX_TRANSCRIPT_SEGMENTS = true; // Based on Tabview Youtube's implementation
+  const DISABLE_MODERN_TRANSCRIPT = true; // modern transcript is incomplete feature as of 2026.05.03
   // ----------------------------- POPUP UNIQUE ID ISSUE -----------------------------
   // example. https://www.youtube.com/channel/UCgPev1KKSCMbnNRsvN83Hag/about
   // first tp-yt-paper-dialog: show once the page is loaded.
@@ -237,10 +143,117 @@
   // Experimental flag "ytpopup_disable_default_html_caching" is disabled by default.
   // Not sure enabling it can make GC or not (Yt Components are usually not GC-able)
   // ----------------------------- POPUP UNIQUE ID ISSUE -----------------------------
+  const FIX_POPUP_UNIQUE_ID = true; // currently only for channel about popup;
 
+  // ===== CORE PATCHES / Scheduler ============================================
+  // YouTube's own scheduler, requestIdleCallback timing and the clock they read.
 
+  const FIX_schedulerInstanceInstance = 2 | 4;
+  const FIX_ytScheduler = true;
+  const FIX_fix_requestIdleCallback_timing = true;
+  const FIX_perfNow = true; // history state issue; see https://bugzilla.mozilla.org/show_bug.cgi?id=1756970
+  const FIX_Polymer_AF = true;
+
+  // ===== CORE PATCHES / Animation ============================================
+  // Web Animations, the cinematic canvas and paper-ripple.
+
+  const NATIVE_CANVAS_ANIMATION = false; // for #cinematics
+  const FIX_Animation_n_timeline = true;
+  const FIX_Animation_n_timeline_cinematic = true;
+  const IGNORE_bindAnimationForCustomEffect = true; // prevent `v.bindAnimationForCustomEffect(this);` being executed
+  const FIX_paper_ripple_animate = true;
+
+  // ===== CORE PATCHES / Polymer + ShadyDOM ===================================
+  // The component layer: yt_player, ShadyDOM/ShadyCSS, dom-if / dom-repeat and yt-action.
+
+  const FIX_yt_player = true; // DONT CHANGE
+  const HOOK_ACTIVE_MODULES = true; // added in 0.37.0
+  const HOOK_ACTIVE_MODULES_fetchUpdatedMetadata = true; // added in 0.37.0 (make likeCount update)
+  const FIX_Shady = true;
+  // [[ 2024.04.24 ]]
+  const MODIFY_ShadyDOM_OBJ = true; // DON'T CHANGE. MUST BE TRUE
+  // << if MODIFY_ShadyDOM_OBJ >>
+  const WEAKREF_ShadyDOM = true;
+  const OMIT_ShadyDOM_EXPERIMENTAL = 1 | 0; // 1 => enable; 2 => composedPath
+  const OMIT_ShadyDOM_settings = 0 | 0 | 0; // 1: inUse; 2: handlesDynamicScoping; 4: force // {{ PRELIM TESTING PURPOSE }}
+  const FIX_Polymer_dom = true;
+  const FIX_doIdomRender = true;
+  const FIX_SHADY_METHODS = true;
+  const FIX_FRAGEMENT_HOST = true;
+  const FIX_ytdExpander_childrenChanged = true;
+  const FIX_ytAction_ = true; // ytd-app
+  const FIX_onVideoDataChange = false;
+  // const FIX_onClick = true;
+  const FIX_onStateChange = true;
+  const FIX_onLoopRangeChange = true;
+  // const FIX_maybeUpdateFlexibleMenu = true; // ytd-menu-renderer
+  const FIX_VideoEVENTS_v2 = true; // true might cause bug in switching page
+  const FIX_DOM_IF_DETACH = true;
+  const FIX_DOM_IF_TEMPLATE = true;
+  const FIX_DOM_IFREPEAT_RenderDebouncerChange_SET_TO_PROPNAME = true; // default true. false might be required for future change
+  const ENHANCE_DOMIF_createAndInsertInstance = true; // root does not need to store in the instance
+  const FIX_ROLLING_NUMBER_UPDATE = true;
+  // const stampDomArray_MemoryFix_Flag001 = false;
+  const XFlag = true; // root issue tbc
+
+  // ===== EXPERIMENTAL / template binding =====================================
+  // Rebinding stamped templates. Upstream marks this area as unfinished.
+
+  const FIX_TEMPLATE_BINDING = true;
+
+  // ===== EXPERIMENTAL / continuation ignore ==================================
+  // De-duplicating fetchUpdatedMetadata continuations (like / view counters).
+
+  // [VN fork] copyPreviousContiuationToIgnored374() never ran upstream (see fix 7 in the header).
+  // Repairing it puts that continuation de-duplication back in play; set this to false to keep
+  // upstream's effective behaviour if like/view counters start refusing to update.
+  const FIX_CONTINUATION_IGNORE_COPY = true;
+  const FIX_avoid_incorrect_video_meta = true; // [legacy feature for rolling number fixing] 2025.05.10 - obsoleted -> y.fetchUpdatedMetadata(t, e.continuation)
+  const FIX_avoid_incorrect_video_meta_emitterBehavior = true; // [legacy feature for rolling number fixing] 2025.05.10 - obsoleted -> y.fetchUpdatedMetadata(t, e.continuation)
+
+  // ===== EXPERIMENTAL / element-pool hack ====================================
+  // Refusing YouTube's reusable element pool and its fast dom-if path.
+
+  const FORCE_NO_REUSEABLE_ELEMENT_POOL = true;
+  const STRICT_PROP_CHECK = false; // [VN fork] make propChecker() gate the stampDomArray patch instead of only warning
+  const USE_fastDomIf = 2; // fastDomIf is seem to be experimental  0 = no change, 1 = enable, 2 = disable
+
+  // ===== EXPERIMENTAL / still under test =====================================
+  // Upstream labels each of these EXPERIMENTAL, problematic, placeholder or TBC.
+
+  const FIX_bind_self_this = false; // EXPERIMENTAL !!!!! this affect page switch after live ends
+  const ENABLE_ASYNC_DISPATCHEVENT = false; // problematic
+  const FIX_DOM_IF_REPEAT = true; // semi-experimental (added in 0.17.0)
+  const IGNORE_bufferhealth_CHECK = false; // experimental; true will make "Stats for nerds" no info.
+  const DISABLE_isLowLatencyLiveStream = false; // TBC
+  const FIX_MODERN_TRANSCRIPT_SEGMENTS = false; // placeholder only; requires FIX_XHR_REQUESTING
+
+  // ===== MEMORY / WeakRef ====================================================
+  // Holding YouTube's own references weakly so a detached subtree can be collected.
+
+  // << end >>
+  const WEAK_REF_BINDING_CONTROL = 1 | 2; // 2 - conflict control with ShadyDOM weakref
+  const WEAK_CE_ROOT = true; // shadowRoot of the return value of attachShadow on the node
+  const MemoryFix_Flag002 = 1 | 2 | 4 | 8 | 0 | 32 | 64 | 0 | 256; 
+  // 32 required for new stampDomArray
+  // 128 to be tested
+
+  // ===== MEMORY / FinalizationRegistry =======================================
+  // Work that only runs once the collector has actually reclaimed a node.
+
+  const FIX_stampDomArray_ = true; // v0.30.0
+  const FIX_stampDomArray = FIX_stampDomArray_ && typeof WeakRef === "function" && typeof FinalizationRegistry === "function";
+  const STAMPED_MAP_EVICTION = true; // [VN fork] drop stampedNodes / stampedFragment entries once the collector takes the node
+  const MEMORY_RELEASE_NF00 = false; // need investigation of the implementation (no time) -> disable
+
+  // ===== MEMORY / cleanup ====================================================
+  // Eager teardown of listeners, maps and component properties.
+
+  const MEMORY_RELEASE_MAP_SET_REMOVE_NODE = false; // [VN fork] upstream default true; only read behind MEMORY_RELEASE_NF00 (false) and by the showNM00/testNM00 debug helpers
+  const FULLY_REMOVE_ALL_EVENT_LISTENERS = false; // [VN fork] upstream default true, but requires MEMORY_RELEASE_NF00 which is false -> records every listener for nothing
+  const FUZZY_EVENT_LISTENER_REMOVAL = true;
+  const ENHANCE_DOMIF_TEARDOWN = true; // require MEMORY_RELEASE_NF00
   const PROP_OverReInclusion_AVOID = true;
-  const PROP_OverReInclusion_DEBUGLOG = false;
   const PROP_OverReInclusion_LIST = new Set([
     'hostElement72',
     'parentComponent72',
@@ -321,6 +334,23 @@
     // */
 
   ]);
+
+  // ===== DEBUG - OFF by default ==============================================
+  // Logging only. Every flag here must stay false in a shipped build.
+
+  const DEBUG_removePrune = false; // true for DEBUG
+  // const FIX_DOM_REPEAT_TEMPLATE = true; // to be implemented
+  const DEBUG_DBR847 = false;
+  const LOG_FETCHMETA_UPDATE = false; // for DEBUG
+  const MEMORY_RELEASE_NF00_SHOW_MESSAGE = false;
+  const FIX_TEMPLATE_BINDING_SHOW_MESSAGE = false;
+  const PROP_OverReInclusion_DEBUGLOG = false;
+  const DEBUG_FN_INTEGRITY = false; // [VN fork] print fnIntegrity() of the stampDomArray methods, to pin them later
+  const DEBUG_EXPOSE_GLOBALS = false; // [VN fork] upstream always published showNM00 / showFrag00 / ... on window
+
+  // [VN fork] every window.showXxx debug helper is written through this, so a shipped
+  // build leaves YouTube's global namespace alone while a debug build keeps them all.
+  const debugNS = DEBUG_EXPOSE_GLOBALS ? window : {};
 
 
   // const CAN_TUNE_VOLUMN_AFTER_RESUME_OR_PAUSE = false; // NO USE; TO BE REVIEWED
@@ -432,8 +462,13 @@
     return y.length > t.length ? t : y;
   }
 
+  // [VN fork] returns whether every method still has the expected arity, so the result can gate
+  // a patch instead of only reaching the console. Arity is a weak invariant - a minified rewrite
+  // that keeps the parameter count passes - so STRICT_PROP_CHECK is opt-in, and DEBUG_FN_INTEGRITY
+  // exists to capture source fingerprints from a live page before pinning anything stronger.
   const propChecker = (p, o) => {
     if (p && typeof p === "object") {
+      let ok = true;
       for (const k of Object.keys(o)) {
         const v = p[k];
         const a = o[k];
@@ -441,12 +476,14 @@
           typeof a === "number" ? v.length === a : a.includes(v.length)
         );
         if (!b1) {
+          ok = false;
           console.warn(`Code Changed: [${(p || 0).is || (p || 0).localName || ((p || 0).nodeName || "").toLowerCase()}] method ${k}`);
         }
       }
+      return ok;
     } else {
       console.warn("propChecker error");
-      return;
+      return false;
     }
   };
 
@@ -510,14 +547,14 @@
     };
   }
 
-  window.showNM00 = () => {
+  debugNS.showNM00 = () => {
     const nmSet = [..._nmSet].map(e => kRef(e)).filter(e => !!e);
     const nmMap = [..._nmMap].map(e => kRef(e)).filter(e => !!e);
     const nmMapV = [..._nmMapV].map(e => kRef(e)).filter(e => !!e);
     return { nmSet, nmMap, nmMapV };
   };
 
-  window.testNM00 = (x) => {
+  debugNS.testNM00 = (x) => {
     const nmSet = [..._nmSet].map(e => kRef(e)).filter(e => !!e);
     const nmMap = [..._nmMap].map(e => kRef(e)).filter(e => !!e);
     const nmMapV = [..._nmMapV].map(e => kRef(e)).filter(e => !!e);
@@ -559,15 +596,19 @@
       if (a === 'dummy-4718') qcMap = this;
       return mapGet.call(this, a);
     };
+    // [VN fork] Map.prototype.get / Set.prototype.has are live for the duration of this one
+    // synchronous call. Upstream restored them on the normal path only, so a throw from the
+    // assignment itself (a frozen prototype, another script's non-writable patch) would have
+    // left the whole page running on the probe's wrappers. The restore is unconditional now.
     let r;
     try {
       r = mainCnt.createComponent_('dummy-4718', {}, true);
     } catch (e) {
 
+    } finally {
+      Map.prototype.get = mapGet;
+      Set.prototype.has = setHas;
     }
-
-    Map.prototype.get = mapGet;
-    Set.prototype.has = setHas;
 
     if (r && (r.nodeName || '').toLowerCase() === 'dummy-4718') {
 
@@ -766,7 +807,7 @@
   const shadys = new Set();
   shadys.add = shadys.addOriginal || shadys.add;
 
-  window.showShadys00 = ()=>[...shadys].map(e=>kRef(e));
+  debugNS.showShadys00 = ()=>[...shadys].map(e=>kRef(e));
 
   const _removedElements = new Set();
   _removedElements.add = _removedElements.addOriginal || _removedElements.add;
@@ -835,7 +876,7 @@
       }
     }
   }
-  window.showNg00 = () => {
+  debugNS.showNg00 = () => {
     const ng01 = new Set();
     ng01.add = ng01.addOriginal || ng01.add;
     for (const e of ng00) {
@@ -845,10 +886,10 @@
     }
     const ng02 = [...ng01];
     ng01.clear();
-    window.showNg01 = [...ng02];
-    return window.showNg01;
+    debugNS.showNg01 = [...ng02];
+    return debugNS.showNg01;
   }
-  window.showTemplates00 = () => {
+  debugNS.showTemplates00 = () => {
     const result = {};
     const elements = document.querySelectorAll('*');
     for (const element of elements) {
@@ -899,7 +940,7 @@
     return {result, counting1, counting2, counting3};
   };
 
-  window.showFrag00 = function(){
+  debugNS.showFrag00 = function(){
 
     const result = {};
     const elements = document.querySelectorAll('*');
@@ -1523,6 +1564,20 @@
 
   }
 
+  // [VN fork] Both maps are keyed by a generated id and hold a WeakRef as the value, so the node
+  // itself can be collected - but upstream never deletes an entry, and nothing else does either,
+  // so the key strings and the spent WeakRef wrappers pile up for the life of the tab. Every write
+  // is registered here and the entry is dropped once the collector takes the node.
+  const stampedEvictor = new FinalizationRegistry_((held) => {
+    const [map, key] = held;
+    map.delete(key);
+  });
+  const registerStamped = STAMPED_MAP_EVICTION ? ((map, key, target) => {
+    try {
+      stampedEvictor.register(target, [map, key]);
+    } catch (e) { }
+  }) : (() => { });
+
   const stampedNodes = new Map();  /* !!!!!! CAUTION FOR MEMORY LEAKAGE !!!!!!! */
   stampedNodes.set = stampedNodes.setOriginal || stampedNodes.set;
   const stampedFragment = new Map();  /* !!!!!! CAUTION FOR MEMORY LEAKAGE !!!!!!! */
@@ -2019,7 +2074,7 @@
 
     const wnc = new Set();
 
-    const __listWeakNodeC__ = window.__listWeakNodeC__ = () => {
+    const __listWeakNodeC__ = debugNS.__listWeakNodeC__ = () => {
       const result = __listWeakNodeC0__();
       return [...result].sort();
     }
@@ -2112,6 +2167,7 @@
               r.__fragId57__ = fid;
               if (!r[wk]) r[wk] = mWeakRef(r);
               stampedFragment.set(fid, r[wk]);
+              registerStamped(stampedFragment, fid, r); // [VN fork]
 
               if (r.nodeList) {
                 const nl = r.nodeList;
@@ -2127,6 +2183,7 @@
                     nl[i] = wn;
                     // we believe the stampedNodes shall be attached to the document DomTree
                     stampedNodes.set(eid, t[wk]);
+                    registerStamped(stampedNodes, eid, t); // [VN fork]
                     t.__weakNodeCId57__ = eid;
                   } else {
                     if (t instanceof ShadowRoot) {
@@ -8220,14 +8277,28 @@
 
       if (FIX_stampDomArray && !location.pathname.startsWith('/live_chat') && cProto.stampDomArray_) {
 
-        propChecker(cProto, {
+        const propsOk = propChecker(cProto, {
           "getStampContainer_": 1,
           "getComponentName_": 2,
           "deferRenderStamperBinding_": [3, 4],
           "flushRenderStamperComponentBindings_": 0,
         });
 
-        const b = cProto.stampDomArray_.length === 6
+        // [VN fork] run this once on a live page, then pin the printed values with fnIntegrity(fn, '...').
+        // try/catch because fnIntegrity is declared further down the file: a component that registers
+        // before that line is reached would otherwise hit its temporal dead zone.
+        if (DEBUG_FN_INTEGRITY) try {
+          console.log('[yt-js-engine-tamer] fnIntegrity', cProto.is || cProto.localName, {
+            stampDomArray_: fnIntegrity(cProto.stampDomArray_),
+            getStampContainer_: fnIntegrity(cProto.getStampContainer_),
+            createComponent_: fnIntegrity(cProto.createComponent_),
+            deferRenderStamperBinding_: fnIntegrity(cProto.deferRenderStamperBinding_),
+            flushRenderStamperComponentBindings_: fnIntegrity(cProto.flushRenderStamperComponentBindings_),
+          });
+        } catch (e) { console.warn('[yt-js-engine-tamer] fnIntegrity unavailable', e); }
+
+        const b = (propsOk || !STRICT_PROP_CHECK)
+          && cProto.stampDomArray_.length === 6
           && cProto.getStampContainer_ && cProto.getStampContainer_.length === 1
           && cProto.createComponent_ && (cProto.createComponent_.length === 4 || cProto.createComponent_.length === 3)
           && cProto.deferRenderStamperBinding_ && (cProto.deferRenderStamperBinding_.length === 4 || cProto.deferRenderStamperBinding_.length === 3)
