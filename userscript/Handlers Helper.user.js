@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Handlers Helper
 // @namespace    https://github.com/KenShinNguyen/FirefoxTweaksVN
-// @version      3.9.2
+// @version      3.9.3
 // @description  Gesture helper for protocol_hook.lua / mpv
 // @author       KenShinNguyen
 // @match        *://*/*
@@ -373,10 +373,15 @@ function EA(source, type) {
     urls = [url];
   }
 
-  var hls = isHlsHost(location.hostname) || urls.some(isHlsUrl);
-  if (hls && type === 'stream') {
+  // A page on a configured host forces everything it hands over, that is what "HLS Force" means.
+  // Past that each link answers for itself, so one HLS sibling in a batch cannot drag the rest along.
+  var forced = isHlsHost(location.hostname);
+  var hls = forced || urls.some(isHlsUrl);
+  // Only streamlink ever sees this scheme, and it reads hls:// as "use the HLS plugin". The yt-dlp
+  // and iptv paths would choke on it, so nothing but 'stream' is rewritten.
+  if (type === 'stream') {
     urls = urls.map(function(link) {
-      return link.replace(/^https?:/i, 'hls:');
+      return (forced || isHlsUrl(link)) ? link.replace(/^https?:/i, 'hls:') : link;
     });
   }
 
