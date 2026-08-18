@@ -1,15 +1,15 @@
 // ==UserScript==
-// @name        Handlers Helper
-// @include       *://*/*
-// @grant       GM_getValue
-// @grant       GM_setValue
-// @grant       GM_deleteValue
-// @grant       GM_addStyle
-// @grant       GM_registerMenuCommand
-// @version     3.8
-// @author      -
-// @description Helper for protocol_hook.lua
-// @namespace Violentmonkey Scripts
+// @name         Handlers Helper
+// @namespace    https://github.com/KenShinNguyen/FirefoxTweaksVN
+// @version      3.9.0
+// @description  Gesture helper for protocol_hook.lua / mpv
+// @author       KenShinNguyen
+// @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_addStyle
+// @grant        GM_registerMenuCommand
 // ==/UserScript==
 
 // Gestures
@@ -25,6 +25,12 @@
 
 var DEBUG = false;
 
+function log() {
+  if (DEBUG) console.log.apply(console, ['Handlers Helper'].concat([].slice.call(arguments)));
+}
+
+// ---------------------------------------------------------------- configuration
+
 // The apps protocol_hook.lua understands. pipe/iptv/mpv are aliases the script maps below,
 // anything else is passed through as-is (mpva = audio only, ytdla = audio download, mg = gallery-dl).
 const guide = 'Value: pipe ytdl stream mpv iptv mpva ytdla mg (empty: disabled)';
@@ -35,14 +41,10 @@ const HOLD_DELAY = 200; // ms the right button has to stay down before a link is
 const HIGHLIGHT = [['outline', '4px solid yellow'], ['outline-offset', '-4px']];
 const isTopFrame = window.self === window.top;
 
-function log() {
-  if (DEBUG) console.log.apply(console, ['Handlers Helper'].concat([].slice.call(arguments)));
-}
-
-// An empty entry would match every URL through indexOf(), so blanks are dropped here.
+// Entries are hostnames: 'animevui.com' covers 'cdn.animevui.com', a blank one covers nothing.
 function parseDomains(value) {
   return String(value == null ? '' : value).split(',').map(function(d) {
-    return d.trim();
+    return d.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^\*\./, '').replace(/\.$/, '');
   }).filter(function(d) {
     return d !== '';
   });
@@ -92,62 +94,14 @@ if (isTopFrame) {
     registerPrompt('↙: ', 'DOWN_LEFT', DOWN_LEFT);
     registerPrompt('↘: ', 'DOWN_RIGHT', DOWN_RIGHT);
   }
-  registerPrompt('HLS Force: ', 'hlsdomain', hlsdomains.join(','), 'Example: 1.com,2.com,3.com,4.com');
+  registerPrompt('HLS Force: ', 'hlsdomain', hlsdomains.join(','), 'Hostnames, example: 1.com,2.com,3.com');
   registerToggle('Live Chat: ', 'livechat', livechat === true, true, false);
   registerToggle('Total Direction: ', 'total_direction', total_direction, 8, 4);
 }
 
 log(UP, DOWN, LEFT, RIGHT, hlsdomains, livechat, total_direction);
 
-var collected_urls = new Map();
-
-// An outline instead of a border: it marks the link without reflowing the page around it.
-// The declarations it overwrites are kept so the mark can be taken back off exactly.
-function highlight(el) {
-  var saved = { el: el, props: [] };
-  if (!el || !el.style) {
-    return saved;
-  }
-  HIGHLIGHT.forEach(function(prop) {
-    saved.props.push([prop[0], el.style.getPropertyValue(prop[0]), el.style.getPropertyPriority(prop[0])]);
-    el.style.setProperty(prop[0], prop[1], 'important');
-  });
-  return saved;
-}
-
-function unhighlight(saved) {
-  if (!saved || !saved.el || !saved.el.style) {
-    return;
-  }
-  saved.props.forEach(function(prop) {
-    if (prop[1]) {
-      saved.el.style.setProperty(prop[0], prop[1], prop[2]);
-    } else {
-      saved.el.style.removeProperty(prop[0]);
-    }
-  });
-}
-
-function toggleCollected(href, el) {
-  if (collected_urls.has(href)) {
-    unhighlight(collected_urls.get(href));
-    collected_urls.delete(href);
-  } else {
-    collected_urls.set(href, highlight(el));
-  }
-  log('collected', Array.from(collected_urls.keys()));
-}
-
-// Hands out the collected links and clears the batch, so a failed send never leaves them stuck.
-function takeCollected() {
-  var urls = [];
-  collected_urls.forEach(function(saved, href) {
-    unhighlight(saved);
-    urls.push(href);
-  });
-  collected_urls.clear();
-  return urls;
-}
+// ---------------------------------------------------------------- url utilities
 
 // SVG anchors carry an SVGAnimatedString instead of a resolved string.
 function hrefOf(el) {
@@ -200,52 +154,137 @@ function findAnchor(e) {
   return null;
 }
 
-// The dropped element wins (an image or a video plays on its own), the link around it is the fallback.
-function dragUrl(e) {
+// What the drag came off, so a drop can tell "this link has no usable URL" (still worth sending
+// the page it sits on) from "this was not a link at all" (nothing to send).
+function dragSource(e) {
   var target = eventPath(e)[0];
-  var direct = hrefOf(target);
-  if (!direct && target && typeof target.currentSrc === 'string' && target.currentSrc) {
-    direct = target.currentSrc;
+  var href = hrefOf(target);
+  if (href) {
+    return { url: href, kind: 'link' };
   }
-  if (!direct && target && typeof target.src === 'string') {
-    direct = target.src;
+  // A <video> hands over what it is actually playing, not the src attribute it was built with.
+  if (target && typeof target.currentSrc === 'string' && target.currentSrc) {
+    return { url: target.currentSrc, kind: 'media' };
   }
-  if (direct) {
-    return direct;
+  if (target && typeof target.src === 'string' && target.src) {
+    return { url: target.src, kind: 'media' };
   }
-  return hrefOf(findAnchor(e));
+  href = hrefOf(findAnchor(e));
+  if (href) {
+    return { url: href, kind: 'link' };
+  }
+  return { url: '', kind: '' };
 }
 
 // btoa() only speaks latin1, so non-ASCII URLs have to be encoded byte by byte first.
+// The alphabet and the stripped padding match atobUrl() in protocol_hook.lua.
 function GM_btoaUrl(url) {
+  var bytes = new TextEncoder().encode(String(url == null ? '' : url));
   var binary = '';
-  var text = String(url == null ? '' : url);
-  if (typeof TextEncoder !== 'undefined') {
-    var bytes = new TextEncoder().encode(text);
-    for (var i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-  } else {
-    binary = unescape(encodeURIComponent(text));
+  for (var i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary).replace(/\//g, '_').replace(/\+/g, '-').replace(/=/g, '');
 }
 
-// mpv:// from a subframe is unreliable, so the top frame takes the handover and stays where it is.
-// Only when it is reachable: a cross-origin parent can refuse the navigation without saying so,
-// and a silent no-op would swallow the whole gesture.
-function navigate(url) {
-  log(url);
+// 'animevui.com' covers the site and its subdomains, and nothing else: a substring test would
+// also swallow evil-animevui.com.attacker.tld and any URL that merely mentions the host.
+function hostnameMatches(hostname, domain) {
+  hostname = String(hostname == null ? '' : hostname).toLowerCase().replace(/\.$/, '');
+  return hostname === domain || hostname.endsWith('.' + domain);
+}
+
+// The page itself being on a configured host is what "HLS Force" forces: every link on it counts.
+function isHlsHost(hostname) {
+  return hlsdomains.some(function(domain) {
+    return hostnameMatches(hostname, domain);
+  });
+}
+
+function isHlsUrl(url) {
+  var parsed;
   try {
-    if (window.top !== window.self && typeof window.top.location.href === 'string') {
-      window.top.location.href = url;
-      return;
-    }
+    parsed = new URL(url, location.href);
+  } catch (err) {
+    return false;
+  }
+  return isHlsHost(parsed.hostname);
+}
+
+// A cross-origin parent throws when its location is read, and refuses the navigation without
+// saying so, so the handover is only worth taking when the top frame is actually reachable.
+function topFrameIsReachable() {
+  try {
+    return window.top !== window.self && typeof window.top.location.href === 'string';
   } catch (err) {
     log('top frame out of reach', err);
+    return false;
+  }
+}
+
+// mpv:// from a subframe is unreliable, so the top frame takes the handover and stays where it is.
+function navigate(url) {
+  log('navigate', url);
+  if (topFrameIsReachable()) {
+    window.top.location.href = url;
+    return;
   }
   location.href = url;
 }
+
+// ---------------------------------------------------------------- collection engine
+
+var collected_urls = new Map();
+
+// An outline instead of a border: it marks the link without reflowing the page around it.
+// The declarations it overwrites are kept so the mark can be taken back off exactly.
+function highlight(el) {
+  var saved = { el: el, props: [] };
+  if (!el || !el.style) {
+    return saved;
+  }
+  HIGHLIGHT.forEach(function(prop) {
+    saved.props.push([prop[0], el.style.getPropertyValue(prop[0]), el.style.getPropertyPriority(prop[0])]);
+    el.style.setProperty(prop[0], prop[1], 'important');
+  });
+  return saved;
+}
+
+function unhighlight(saved) {
+  if (!saved || !saved.el || !saved.el.style) {
+    return;
+  }
+  saved.props.forEach(function(prop) {
+    if (prop[1]) {
+      saved.el.style.setProperty(prop[0], prop[1], prop[2]);
+    } else {
+      saved.el.style.removeProperty(prop[0]);
+    }
+  });
+}
+
+function toggleCollected(href, el) {
+  if (collected_urls.has(href)) {
+    unhighlight(collected_urls.get(href));
+    collected_urls.delete(href);
+  } else {
+    collected_urls.set(href, highlight(el));
+  }
+  log('collected', Array.from(collected_urls.keys()));
+}
+
+// Hands out the collected links and clears the batch, so a failed send never leaves them stuck.
+function takeCollected() {
+  var urls = [];
+  collected_urls.forEach(function(saved, href) {
+    unhighlight(saved);
+    urls.push(href);
+  });
+  collected_urls.clear();
+  return urls;
+}
+
+// ---------------------------------------------------------------- live chat
 
 function popout(chaturl) {
   window.open(chaturl, '', 'fullscreen=no,toolbar=no,titlebar=no,menubar=no,location=no,width=' + live_window_width + ',height=' + live_window_height);
@@ -271,17 +310,17 @@ function livechatopener(url) {
     return;
   }
   var host = nurl.hostname;
-  if (/(^|\.)youtube\.com$/.test(host) || host === 'youtu.be') {
+  if (hostnameMatches(host, 'youtube.com') || host === 'youtu.be') {
     var id = youtubeVideoId(nurl);
     if (id) {
       popout('https://www.youtube.com/live_chat?is_popout=1&v=' + encodeURIComponent(id));
     }
-  } else if (/(^|\.)twitch\.tv$/.test(host)) {
+  } else if (hostnameMatches(host, 'twitch.tv')) {
     var channel = nurl.pathname.split('/').filter(Boolean)[0];
     if (channel) {
       popout('https://www.twitch.tv/popout/' + channel + '/chat?popout=');
     }
-  } else if (/(^|\.)nimo\.tv$/.test(host)) {
+  } else if (hostnameMatches(host, 'nimo.tv')) {
     var player = null;
     try {
       player = document.querySelector('a[href=' + JSON.stringify(nurl.pathname) + '] .nimo-player.n-as-full');
@@ -294,53 +333,53 @@ function livechatopener(url) {
   }
 }
 
-function isHlsUrl(url) {
-  return hlsdomains.some(function(domain) {
-    return url.indexOf(domain) !== -1 || location.hostname.indexOf(domain) !== -1;
-  });
-}
+// ---------------------------------------------------------------- protocol engine
 
-function EA(attr, type) {
+function EA(source, type) {
   if (!type) {
     log('no app bound to this direction');
     return;
   }
-  attr = String(attr == null ? '' : attr);
-  log(attr, type);
+  var attr = String(source && source.url != null ? source.url : '').trim();
+  var kind = (source && source.kind) || '';
+  log(attr, kind, type);
 
   if (attr.startsWith('mpv://')) {
     navigate(attr);
     return;
   }
 
-  var url = /^https?:/i.test(attr) ? attr : location.href;
-  var app = 'play';
-  var hls = false;
+  // A link or a media element whose URL mpv cannot use (blob:, javascript:) still means "the page
+  // this sits on". A drag that started on plain content means nothing, and must not send the page.
+  var url = /^https?:/i.test(attr) ? attr : '';
+  if (!url && kind) {
+    url = location.href;
+  }
 
   // A batch beats the dropped link, that is the whole point of collecting them.
   var urls = takeCollected();
   if (urls.length === 0) {
+    if (!url) {
+      log('nothing to send');
+      return;
+    }
     urls = [url];
   }
-  urls.forEach(function(link) {
-    if (isHlsUrl(link)) {
-      hls = true;
-    }
-  });
+
+  var hls = isHlsHost(location.hostname) || urls.some(isHlsUrl);
   if (hls && type === 'stream') {
     urls = urls.map(function(link) {
       return link.replace(/^https?:/i, 'hls:');
     });
   }
 
+  var app = type;
   if (type === 'pipe') {
     app = 'mpvy';
   } else if (type === 'iptv') {
     app = 'list';
   } else if (type === 'mpv' || type === 'vid') {
     app = 'play';
-  } else {
-    app = type;
   }
 
   // protocol_hook.lua splits the payload on whitespace and reads the query after the last slash.
@@ -351,74 +390,93 @@ function EA(attr, type) {
   var url2 = 'mpv://' + app + '/' + GM_btoaUrl(urls.join(' ')) + '/?' + query.join('&');
 
   if (app === 'stream' && livechat === true) {
-    livechatopener(url);
+    livechatopener(url || location.href);
   }
   navigate(url2);
 }
 
-// Define the enum-like directory
-const DirectionEnum = {
-  RIGHT: 6,
-  LEFT: 4,
-  UP: 2,
-  DOWN: 8,
+// ---------------------------------------------------------------- gesture engine
+
+/*=================
+|                 |
+| 1↖   2↑   3↗ |
+|                 |
+| 4←    5    6→ |
+|                 |
+| 7↙   8↓   9↘ |
+|                 |
+|=================*/
+const DIRECTIONS = Object.freeze({
   UP_LEFT: 1,
+  UP: 2,
   UP_RIGHT: 3,
+  LEFT: 4,
+  NONE: 5,
+  RIGHT: 6,
   DOWN_LEFT: 7,
+  DOWN: 8,
   DOWN_RIGHT: 9
-};
+});
 
 function getDirection(x, y, cx, cy) {
-  /*=================
-  |                 |
-  | 1↖   2↑   3↗ |
-  |                 |
-  | 4←    5    6→ |
-  |                 |
-  | 7↙   8↓   9↘ |
-  |                 |
-  |=================*/
-  let d, t;
+  var dx = cx - x;
+  var dy = cy - y;
   // A drop outside the window reports 0,0 instead of a position.
-  if (cx == 0 && cy == 0) {
-    return 5;
+  if (cx === 0 && cy === 0) {
+    return DIRECTIONS.NONE;
   }
-  if ((cx - x) >= -DEAD_ZONE && (cx - x) <= DEAD_ZONE && (cy - y) >= -DEAD_ZONE && (cy - y) <= DEAD_ZONE) {
-    return 5;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) <= DEAD_ZONE) {
+    return DIRECTIONS.NONE;
   }
-  if (total_direction === 4) { //4 directions
-    if (Math.abs(cx - x) < Math.abs(cy - y)) {
-      d = cy > y ? 8 : 2;
-    } else {
-      d = cx > x ? 6 : 4;
+  if (total_direction === 4) {
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx > 0 ? DIRECTIONS.RIGHT : DIRECTIONS.LEFT;
     }
-  } else { //8 directions
-    t = (cy - y) / (cx - x);
-    if (-0.4142 <= t && t < 0.4142) d = cx > x ? 6 : 4;
-    else if (2.4142 <= t || t < -2.4142) d = cy > y ? 8 : 2;
-    else if (0.4142 <= t && t < 2.4142) d = cx > x ? 9 : 1;
-    else d = cy > y ? 7 : 3;
+    return dy > 0 ? DIRECTIONS.DOWN : DIRECTIONS.UP;
   }
-  return d;
+  // Eight 45° sectors, y pointing down: 0° is a drop to the right, +90° straight down.
+  var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (angle >= -22.5 && angle < 22.5) {
+    return DIRECTIONS.RIGHT;
+  }
+  if (angle >= 22.5 && angle < 67.5) {
+    return DIRECTIONS.DOWN_RIGHT;
+  }
+  if (angle >= 67.5 && angle < 112.5) {
+    return DIRECTIONS.DOWN;
+  }
+  if (angle >= 112.5 && angle < 157.5) {
+    return DIRECTIONS.DOWN_LEFT;
+  }
+  if (angle >= 157.5 || angle < -157.5) {
+    return DIRECTIONS.LEFT;
+  }
+  if (angle >= -157.5 && angle < -112.5) {
+    return DIRECTIONS.UP_LEFT;
+  }
+  if (angle >= -112.5 && angle < -67.5) {
+    return DIRECTIONS.UP;
+  }
+  return DIRECTIONS.UP_RIGHT;
 }
 
 function appForDirection(direction) {
   switch (direction) {
-    case DirectionEnum.RIGHT:
+    case DIRECTIONS.RIGHT:
       return RIGHT;
-    case DirectionEnum.LEFT:
+    case DIRECTIONS.LEFT:
       return LEFT;
-    case DirectionEnum.UP:
+    case DIRECTIONS.UP:
       return UP;
-    case DirectionEnum.DOWN:
+    case DIRECTIONS.DOWN:
       return DOWN;
-    case DirectionEnum.UP_LEFT:
+    case DIRECTIONS.UP_LEFT:
       return UP_LEFT;
-    case DirectionEnum.UP_RIGHT:
+    case DIRECTIONS.UP_RIGHT:
       return UP_RIGHT;
-    case DirectionEnum.DOWN_LEFT:
+    case DIRECTIONS.DOWN_LEFT:
       return DOWN_LEFT;
-    case DirectionEnum.DOWN_RIGHT:
+    case DIRECTIONS.DOWN_RIGHT:
       return DOWN_RIGHT;
     default:
       return '';
@@ -446,15 +504,25 @@ document.addEventListener('dragend', function(e) {
   if (!app) {
     return;
   }
-  EA(dragUrl(e), app);
+  EA(dragSource(e), app);
 }, true);
 
-var holdTimer = 0;
+var holdTimer = null;
+var holdTarget = null;
 var suppressContextMenu = false;
+
+function cancelHold() {
+  if (holdTimer !== null) {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+  }
+  holdTarget = null;
+}
 
 document.addEventListener('mousedown', function(e) {
   // Cleared on every press, otherwise a hold would swallow the menu of the next right click.
   suppressContextMenu = false;
+  cancelHold();
   if (e.button !== 2) {
     return;
   }
@@ -464,19 +532,21 @@ document.addEventListener('mousedown', function(e) {
     return;
   }
   var target = eventPath(e)[0];
-  var el = (target && target.nodeType === 1) ? target : link;
-  clearTimeout(holdTimer);
+  holdTarget = { href: href, element: (target && target.nodeType === 1) ? target : link };
   holdTimer = setTimeout(function() {
-    holdTimer = 0;
-    toggleCollected(href, el);
+    holdTimer = null;
+    if (!holdTarget) {
+      return;
+    }
+    toggleCollected(holdTarget.href, holdTarget.element);
+    holdTarget = null;
     suppressContextMenu = true;
   }, HOLD_DELAY);
 }, true);
 
 document.addEventListener('mouseup', function(e) {
-  if (e.button === 2 && holdTimer) {
-    clearTimeout(holdTimer);
-    holdTimer = 0;
+  if (e.button === 2) {
+    cancelHold();
   }
 }, true);
 
@@ -486,6 +556,8 @@ document.addEventListener('contextmenu', function(e) {
     e.preventDefault();
   }
 }, true);
+
+// ---------------------------------------------------------------- youtube utilities
 
 if (isTopFrame && (location.hostname === 'www.youtube.com' || location.hostname === 'm.youtube.com')) {
   let isMobile = location.hostname === 'm.youtube.com';
