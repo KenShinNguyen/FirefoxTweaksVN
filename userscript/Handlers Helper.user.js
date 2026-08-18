@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Handlers Helper
 // @namespace    https://github.com/KenShinNguyen/FirefoxTweaksVN
-// @version      3.9.0
+// @version      3.9.1
 // @description  Gesture helper for protocol_hook.lua / mpv
 // @author       KenShinNguyen
 // @match        *://*/*
@@ -211,23 +211,17 @@ function isHlsUrl(url) {
   return isHlsHost(parsed.hostname);
 }
 
-// A cross-origin parent throws when its location is read, and refuses the navigation without
-// saying so, so the handover is only worth taking when the top frame is actually reachable.
-function topFrameIsReachable() {
-  try {
-    return window.top !== window.self && typeof window.top.location.href === 'string';
-  } catch (err) {
-    log('top frame out of reach', err);
-    return false;
-  }
-}
-
 // mpv:// from a subframe is unreliable, so the top frame takes the handover and stays where it is.
+// A parent that cannot be reached at all throws on the way in, and the frame handles its own.
 function navigate(url) {
   log('navigate', url);
-  if (topFrameIsReachable()) {
-    window.top.location.href = url;
-    return;
+  try {
+    if (window.top !== window.self) {
+      window.top.location.href = url;
+      return;
+    }
+  } catch (err) {
+    log('top frame navigation failed', err);
   }
   location.href = url;
 }
@@ -273,15 +267,17 @@ function toggleCollected(href, el) {
   log('collected', Array.from(collected_urls.keys()));
 }
 
-// Hands out the collected links and clears the batch, so a failed send never leaves them stuck.
-function takeCollected() {
-  var urls = [];
-  collected_urls.forEach(function(saved, href) {
+function collectedUrls() {
+  return Array.from(collected_urls.keys());
+}
+
+// Reading the batch and dropping it are separate steps: EA() only drops it once the handover
+// actually happened, so anything that throws on the way out leaves the links collected and marked.
+function clearCollected() {
+  collected_urls.forEach(function(saved) {
     unhighlight(saved);
-    urls.push(href);
   });
   collected_urls.clear();
-  return urls;
 }
 
 // ---------------------------------------------------------------- live chat
@@ -357,7 +353,7 @@ function EA(source, type) {
   }
 
   // A batch beats the dropped link, that is the whole point of collecting them.
-  var urls = takeCollected();
+  var urls = collectedUrls();
   if (urls.length === 0) {
     if (!url) {
       log('nothing to send');
@@ -393,6 +389,7 @@ function EA(source, type) {
     livechatopener(url || location.href);
   }
   navigate(url2);
+  clearCollected();
 }
 
 // ---------------------------------------------------------------- gesture engine
