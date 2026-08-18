@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Handlers Helper
 // @namespace    https://github.com/KenShinNguyen/FirefoxTweaksVN
-// @version      3.9.1
+// @version      3.9.2
 // @description  Gesture helper for protocol_hook.lua / mpv
 // @author       KenShinNguyen
 // @match        *://*/*
@@ -20,6 +20,17 @@
 // already collected link removes it again. Firefox opens its context menu on mousedown on
 // Windows/Linux, which is too early for the hold to suppress it; set
 // ui.context_menus.after_mouseup = true to get the menu out of the way of the gesture.
+//
+// What a drop hands over, decided in this order:
+//   an <a> on mpv://                   handed over as it stands, collected links stay collected
+//   links collected with the hold      the batch, and the dragged link is not added to it
+//   an <a> with an http(s) href        the link
+//   an <img>/<video>/<audio>           its currentSrc, so a srcset candidate and the source a
+//                                      player is really on both beat the src attribute
+//   an <img> inside an <a>             the image, not the link it sits in
+//   a link or media on a URL mpv       the page it sits on, which is what makes dragging a
+//     cannot use (blob:, javascript:)  player on a blob: source open the watch page
+//   plain content with no URL at all   nothing: a stray text drag must not send the page
 
 //'iptv'
 
