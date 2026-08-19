@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Handlers Helper
 // @namespace    https://github.com/KenShinNguyen/FirefoxTweaksVN
-// @version      3.9.3
+// @version      3.10.0
 // @description  Gesture helper for protocol_hook.lua / mpv
 // @author       KenShinNguyen
 // @match        *://*/*
@@ -10,16 +10,24 @@
 // @grant        GM_deleteValue
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
+// @grant        GM_addValueChangeListener
 // ==/UserScript==
 
 // Gestures
 //   drag a link/image/video and drop it in a direction -> hand its URL to mpv://
 //   hold the right button on a link (200ms) -> collect it, drop any link afterwards to send the whole batch
+//   Esc -> drop the collected batch without sending it
+//
+// A label follows the cursor while dragging and names the app the drop would reach. No label means
+// the drop would do nothing, so a gesture can be called off by coming back to where it started
+// instead of by guessing. "Gesture Hint" turns it off.
 //
 // The collected links are only unhighlighted once a batch is sent, so a right-click hold on an
-// already collected link removes it again. Firefox opens its context menu on mousedown on
-// Windows/Linux, which is too early for the hold to suppress it; set
-// ui.context_menus.after_mouseup = true to get the menu out of the way of the gesture.
+// already collected link removes it again. A press that starts moving is not a hold, which leaves
+// right-drag gestures alone. Firefox opens its context menu on mousedown on Windows/Linux, which is
+// too early for the hold to suppress it; set ui.context_menus.after_mouseup = true to get the menu
+// out of the way of the gesture.
 //
 // What a drop hands over, decided in this order:
 //   an <a> on mpv://                   handed over as it stands, collected links stay collected
@@ -34,10 +42,10 @@
 
 //'iptv'
 
-var DEBUG = false;
+var config = {};
 
 function log() {
-  if (DEBUG) console.log.apply(console, ['Handlers Helper'].concat([].slice.call(arguments)));
+  if (config.debug) console.log.apply(console, ['Handlers Helper'].concat([].slice.call(arguments)));
 }
 
 // ---------------------------------------------------------------- configuration
@@ -49,68 +57,69 @@ const live_window_width = 400;
 const live_window_height = 640;
 const DEAD_ZONE = 50; // px; a drop that lands this close to the start has no direction
 const HOLD_DELAY = 200; // ms the right button has to stay down before a link is collected
+const HOLD_SLOP = 12; // px the pointer may drift in that time before the press stops being a hold
+const MENU_GUARD = 1000; // ms a finished hold stays entitled to swallow the context menu it caused
 const HIGHLIGHT = [['outline', '4px solid yellow'], ['outline-offset', '-4px']];
 const isTopFrame = window.self === window.top;
 
+// Every setting is read through here, so a change written once can be picked up in place by every
+// frame instead of by reloading the page out from under whatever is playing on it.
+const DEFAULTS = Object.freeze({
+  UP: 'pipe',
+  DOWN: 'ytdl',
+  LEFT: 'stream',
+  RIGHT: 'mpv',
+  UP_LEFT: 'list',
+  UP_RIGHT: '',
+  DOWN_LEFT: '',
+  DOWN_RIGHT: '',
+  hlsdomain: 'cdn.animevui.com',
+  livechat: false,
+  total_direction: 4,
+  hint: true,
+  debug: false
+});
+const FLAGS = ['livechat', 'hint', 'debug'];
+
+var hlsdomains = [];
+
 // Entries are hostnames: 'animevui.com' covers 'cdn.animevui.com', a blank one covers nothing.
+// A whole URL is taken as well, so one pasted out of the address bar works: the scheme, any
+// credentials, the port and everything from the first slash on come back off again, because
+// location.hostname carries none of them and an entry that kept them could never match.
 function parseDomains(value) {
   return String(value == null ? '' : value).split(',').map(function(d) {
-    return d.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^\*\./, '').replace(/\.$/, '');
+    return d.trim().toLowerCase()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+      .replace(/^[^/?#@]*@/, '')
+      .replace(/[/?#].*$/, '')
+      .replace(/:\d*$/, '')
+      .replace(/^\*\./, '')
+      .replace(/\.$/, '');
   }).filter(function(d) {
     return d !== '';
   });
 }
 
-var UP = GM_getValue('UP', 'pipe');
-var DOWN = GM_getValue('DOWN', 'ytdl');
-var LEFT = GM_getValue('LEFT', 'stream');
-var RIGHT = GM_getValue('RIGHT', 'mpv');
-var UP_LEFT = GM_getValue('UP_LEFT', 'list');
-var UP_RIGHT = GM_getValue('UP_RIGHT', '');
-var DOWN_LEFT = GM_getValue('DOWN_LEFT', '');
-var DOWN_RIGHT = GM_getValue('DOWN_RIGHT', '');
-var hlsdomain = GM_getValue('hlsdomain', 'cdn.animevui.com');
-var livechat = GM_getValue('livechat', false);
-var total_direction = Number(GM_getValue('total_direction', 4)) === 8 ? 8 : 4;
-var hlsdomains = parseDomains(hlsdomain);
-
-function registerPrompt(label, key, current, hint) {
-  GM_registerMenuCommand(label + (current || 'off'), function() {
-    // An empty answer turns the direction off, only a cancelled prompt keeps the old value.
-    var p = window.prompt(hint || guide, current);
-    if (p === null) {
-      return;
-    }
-    GM_setValue(key, p.trim());
-    window.location.reload();
-  });
-}
-
-function registerToggle(label, key, current, on, off) {
-  GM_registerMenuCommand(label + current, function() {
-    GM_setValue(key, current === on ? off : on);
-    window.location.reload();
-  });
-}
-
-// Every frame of a page would otherwise register its own copy of the whole menu.
-if (isTopFrame) {
-  registerPrompt('↑: ', 'UP', UP);
-  registerPrompt('↓: ', 'DOWN', DOWN);
-  registerPrompt('←: ', 'LEFT', LEFT);
-  registerPrompt('→: ', 'RIGHT', RIGHT);
-  if (total_direction === 8) {
-    registerPrompt('↖: ', 'UP_LEFT', UP_LEFT);
-    registerPrompt('↗: ', 'UP_RIGHT', UP_RIGHT);
-    registerPrompt('↙: ', 'DOWN_LEFT', DOWN_LEFT);
-    registerPrompt('↘: ', 'DOWN_RIGHT', DOWN_RIGHT);
+function loadSetting(key) {
+  var raw = GM_getValue(key, DEFAULTS[key]);
+  if (key === 'total_direction') {
+    config[key] = Number(raw) === 8 ? 8 : 4;
+  } else if (FLAGS.indexOf(key) !== -1) {
+    config[key] = raw === true || raw === 'true';
+  } else {
+    config[key] = String(raw == null ? '' : raw).trim();
   }
-  registerPrompt('HLS Force: ', 'hlsdomain', hlsdomains.join(','), 'Hostnames, example: 1.com,2.com,3.com');
-  registerToggle('Live Chat: ', 'livechat', livechat === true, true, false);
-  registerToggle('Total Direction: ', 'total_direction', total_direction, 8, 4);
+  if (key === 'hlsdomain') {
+    hlsdomains = parseDomains(config[key]);
+  }
 }
 
-log(UP, DOWN, LEFT, RIGHT, hlsdomains, livechat, total_direction);
+Object.keys(DEFAULTS).forEach(function(key) {
+  loadSetting(key);
+});
+
+log('config', config, hlsdomains);
 
 // ---------------------------------------------------------------- url utilities
 
@@ -276,6 +285,7 @@ function toggleCollected(href, el) {
     collected_urls.set(href, highlight(el));
   }
   log('collected', Array.from(collected_urls.keys()));
+  refreshMenu();
 }
 
 function collectedUrls() {
@@ -289,6 +299,7 @@ function clearCollected() {
     unhighlight(saved);
   });
   collected_urls.clear();
+  refreshMenu();
 }
 
 // ---------------------------------------------------------------- live chat
@@ -342,6 +353,15 @@ function livechatopener(url) {
 
 // ---------------------------------------------------------------- protocol engine
 
+// protocol_hook.lua splits the payload on whitespace, so a URL carrying a literal space would
+// arrive as two broken ones. The browser hands these over encoded already; a src attribute
+// written by hand is the exception this covers.
+function packUrls(urls) {
+  return urls.map(function(link) {
+    return link.replace(/[ \t\n\r\f\v]/g, encodeURIComponent);
+  }).join(' ');
+}
+
 function EA(source, type) {
   if (!type) {
     log('no app bound to this direction');
@@ -373,6 +393,10 @@ function EA(source, type) {
     urls = [url];
   }
 
+  // The chat window belongs to what is about to play, which is the head of the batch when there is
+  // one: the dragged link only triggered the handover and is not itself sent.
+  var chatTarget = urls[0] || location.href;
+
   // A page on a configured host forces everything it hands over, that is what "HLS Force" means.
   // Past that each link answers for itself, so one HLS sibling in a batch cannot drag the rest along.
   var forced = isHlsHost(location.hostname);
@@ -394,15 +418,15 @@ function EA(source, type) {
     app = 'play';
   }
 
-  // protocol_hook.lua splits the payload on whitespace and reads the query after the last slash.
+  // protocol_hook.lua reads the query after the last slash.
   var query = ['referer=' + GM_btoaUrl(location.href)];
   if (hls === true) {
     query.push('hls=1');
   }
-  var url2 = 'mpv://' + app + '/' + GM_btoaUrl(urls.join(' ')) + '/?' + query.join('&');
+  var url2 = 'mpv://' + app + '/' + GM_btoaUrl(packUrls(urls)) + '/?' + query.join('&');
 
-  if (app === 'stream' && livechat === true) {
-    livechatopener(url || location.href);
+  if (app === 'stream' && config.livechat === true) {
+    livechatopener(chatTarget);
   }
   navigate(url2);
   clearCollected();
@@ -441,7 +465,7 @@ function getDirection(x, y, cx, cy) {
   if (Math.max(Math.abs(dx), Math.abs(dy)) <= DEAD_ZONE) {
     return DIRECTIONS.NONE;
   }
-  if (total_direction === 4) {
+  if (config.total_direction === 4) {
     if (Math.abs(dx) >= Math.abs(dy)) {
       return dx > 0 ? DIRECTIONS.RIGHT : DIRECTIONS.LEFT;
     }
@@ -476,24 +500,83 @@ function getDirection(x, y, cx, cy) {
 function appForDirection(direction) {
   switch (direction) {
     case DIRECTIONS.RIGHT:
-      return RIGHT;
+      return config.RIGHT;
     case DIRECTIONS.LEFT:
-      return LEFT;
+      return config.LEFT;
     case DIRECTIONS.UP:
-      return UP;
+      return config.UP;
     case DIRECTIONS.DOWN:
-      return DOWN;
+      return config.DOWN;
     case DIRECTIONS.UP_LEFT:
-      return UP_LEFT;
+      return config.UP_LEFT;
     case DIRECTIONS.UP_RIGHT:
-      return UP_RIGHT;
+      return config.UP_RIGHT;
     case DIRECTIONS.DOWN_LEFT:
-      return DOWN_LEFT;
+      return config.DOWN_LEFT;
     case DIRECTIONS.DOWN_RIGHT:
-      return DOWN_RIGHT;
+      return config.DOWN_RIGHT;
     default:
       return '';
   }
+}
+
+// A drag gives no feedback of its own, so without this the direction is only readable once the
+// drop has already happened. Every declaration is !important and the label takes no pointer
+// events, so no page can style it away or lose the drop to it.
+const HINT_STYLE = [
+  ['position', 'fixed'], ['left', '0'], ['top', '0'], ['margin', '0'], ['border', '0'],
+  ['z-index', '2147483647'], ['pointer-events', 'none'], ['padding', '3px 8px'],
+  ['border-radius', '4px'], ['background', 'rgba(20,20,20,0.88)'], ['color', '#fff'],
+  ['font', '700 13px/1.4 system-ui, sans-serif'], ['white-space', 'pre'],
+  ['box-shadow', '0 2px 6px rgba(0,0,0,0.45)']
+];
+
+var hintEl = null;
+var hintSize = { w: 0, h: 0 };
+
+function showHint(text, x, y) {
+  if (!hintEl) {
+    var host = document.body || document.documentElement;
+    if (!host) {
+      return;
+    }
+    hintEl = document.createElement('div');
+    HINT_STYLE.forEach(function(prop) {
+      hintEl.style.setProperty(prop[0], prop[1], 'important');
+    });
+    host.appendChild(hintEl);
+  }
+  // Measuring costs a reflow, so it is only done when the label actually says something new.
+  if (hintEl.textContent !== text) {
+    hintEl.textContent = text;
+    hintSize = { w: hintEl.offsetWidth, h: hintEl.offsetHeight };
+  }
+  // Below and right of the cursor, pulled back inside the window rather than off the edge of it.
+  var left = Math.max(4, Math.min(x + 16, window.innerWidth - hintSize.w - 4));
+  var top = Math.max(4, Math.min(y + 20, window.innerHeight - hintSize.h - 4));
+  hintEl.style.setProperty('transform', 'translate(' + Math.round(left) + 'px,' + Math.round(top) + 'px)', 'important');
+}
+
+function hideHint() {
+  if (hintEl && hintEl.parentNode) {
+    hintEl.parentNode.removeChild(hintEl);
+  }
+  hintEl = null;
+  hintSize = { w: 0, h: 0 };
+}
+
+// Nothing to show is shown as nothing: inside the dead zone, on a direction with no app bound and
+// on a drag with no URL behind it, the missing label is the answer.
+function updateHint(x, y) {
+  if (!config.hint || !dragOrigin) {
+    return;
+  }
+  var app = dragOrigin.sendable ? appForDirection(getDirection(dragOrigin.x, dragOrigin.y, x, y)) : '';
+  if (!app) {
+    hideHint();
+    return;
+  }
+  showHint(app, x, y);
 }
 
 var dragOrigin = null;
@@ -501,11 +584,27 @@ var dragOrigin = null;
 // Capture on the document: it beats pages that stop drag events on their way up, and it sees
 // through shadow roots, so the listener does not have to be duplicated into every shadow root.
 document.addEventListener('dragstart', function(e) {
-  dragOrigin = { x: e.clientX, y: e.clientY };
+  dragOrigin = {
+    x: e.clientX,
+    y: e.clientY,
+    sendable: !!dragSource(e).kind || collected_urls.size > 0
+  };
   log('dragstart', dragOrigin);
 }, true);
 
+// 'drag' fires on the element the gesture started from and 'dragover' on whatever the cursor is
+// over: together they keep the label up to date without the script ever accepting the drop, which
+// it must not do or the page below would stop seeing its own drags.
+function onDragMove(e) {
+  updateHint(e.clientX, e.clientY);
+}
+
+document.addEventListener('drag', onDragMove, true);
+document.addEventListener('dragover', onDragMove, true);
+document.addEventListener('drop', hideHint, true);
+
 document.addEventListener('dragend', function(e) {
+  hideHint();
   var origin = dragOrigin;
   dragOrigin = null;
   if (!origin) {
@@ -522,7 +621,20 @@ document.addEventListener('dragend', function(e) {
 
 var holdTimer = null;
 var holdTarget = null;
-var suppressContextMenu = false;
+var holdOrigin = null;
+var suppressMenuUntil = 0;
+
+// A press that starts travelling was aiming somewhere else, and collecting a link out from under a
+// right-drag gesture is the kind of surprise that costs the user a click to undo.
+function onHoldMove(e) {
+  if (!holdOrigin) {
+    return;
+  }
+  if (Math.abs(e.clientX - holdOrigin.x) > HOLD_SLOP || Math.abs(e.clientY - holdOrigin.y) > HOLD_SLOP) {
+    log('hold given up, the pointer moved');
+    cancelHold();
+  }
+}
 
 function cancelHold() {
   if (holdTimer !== null) {
@@ -530,11 +642,13 @@ function cancelHold() {
     holdTimer = null;
   }
   holdTarget = null;
+  holdOrigin = null;
+  document.removeEventListener('mousemove', onHoldMove, true);
 }
 
 document.addEventListener('mousedown', function(e) {
   // Cleared on every press, otherwise a hold would swallow the menu of the next right click.
-  suppressContextMenu = false;
+  suppressMenuUntil = 0;
   cancelHold();
   if (e.button !== 2) {
     return;
@@ -545,15 +659,19 @@ document.addEventListener('mousedown', function(e) {
     return;
   }
   var target = eventPath(e)[0];
+  holdOrigin = { x: e.clientX, y: e.clientY };
   holdTarget = { href: href, element: (target && target.nodeType === 1) ? target : link };
+  document.addEventListener('mousemove', onHoldMove, true);
   holdTimer = setTimeout(function() {
     holdTimer = null;
     if (!holdTarget) {
       return;
     }
     toggleCollected(holdTarget.href, holdTarget.element);
-    holdTarget = null;
-    suppressContextMenu = true;
+    cancelHold();
+    // The press has been spent on the hold, so the menu it is about to open is owed to nobody.
+    // Only that one menu: a menu opened any other way, or long afterwards, is left alone.
+    suppressMenuUntil = Date.now() + MENU_GUARD;
   }, HOLD_DELAY);
 }, true);
 
@@ -564,17 +682,141 @@ document.addEventListener('mouseup', function(e) {
 }, true);
 
 document.addEventListener('contextmenu', function(e) {
-  if (suppressContextMenu) {
-    suppressContextMenu = false;
+  if (suppressMenuUntil && Date.now() <= suppressMenuUntil) {
+    suppressMenuUntil = 0;
     e.preventDefault();
   }
 }, true);
+
+// A batch that is not going anywhere still has to be droppable, and the links it holds can have
+// scrolled away or been replaced by then, which leaves no highlight left to click a second time.
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && collected_urls.size > 0) {
+    log('batch dropped on Escape');
+    clearCollected();
+  }
+}, true);
+
+// ---------------------------------------------------------------- menu
+
+const ARROWS = Object.freeze({
+  UP: '↑',
+  DOWN: '↓',
+  LEFT: '←',
+  RIGHT: '→',
+  UP_LEFT: '↖',
+  UP_RIGHT: '↗',
+  DOWN_LEFT: '↙',
+  DOWN_RIGHT: '↘'
+});
+const DIAGONALS = ['UP_LEFT', 'UP_RIGHT', 'DOWN_LEFT', 'DOWN_RIGHT'];
+
+// Applying a change used to mean reloading the page, which costs whatever was playing on it.
+// Relabelling the menu in place needs GM_unregisterMenuCommand, and the copy of the settings each
+// frame holds needs GM_addValueChangeListener to hear about the change at all. A manager that is
+// missing either one keeps the reload, so nothing silently goes half-applied.
+const canRelabelMenu = typeof GM_unregisterMenuCommand === 'function';
+const canWatchValues = typeof GM_addValueChangeListener === 'function';
+const liveSettings = canRelabelMenu && canWatchValues;
+
+var menuIds = [];
+
+function addMenuCommand(label, handler) {
+  var id = GM_registerMenuCommand(label, handler);
+  if (id !== undefined && id !== null) {
+    menuIds.push(id);
+  }
+}
+
+function writeSetting(key, value) {
+  GM_setValue(key, value);
+  if (!liveSettings) {
+    window.location.reload();
+    return;
+  }
+  // The change listener will say the same thing, but it is not waited on: the menu answers now.
+  applySetting(key);
+}
+
+function applySetting(key) {
+  var before = JSON.stringify(config[key]);
+  loadSetting(key);
+  if (JSON.stringify(config[key]) === before) {
+    return;
+  }
+  log('setting', key, config[key]);
+  refreshMenu();
+}
+
+function registerPrompt(label, key, current, hint) {
+  addMenuCommand(label + (current || 'off'), function() {
+    // An empty answer turns the direction off, only a cancelled prompt keeps the old value.
+    var p = window.prompt(hint || guide, current);
+    if (p === null || p.trim() === current) {
+      return;
+    }
+    writeSetting(key, p.trim());
+  });
+}
+
+function registerToggle(label, key, current, on, off) {
+  addMenuCommand(label + current, function() {
+    writeSetting(key, current === on ? off : on);
+  });
+}
+
+function buildMenu() {
+  Object.keys(ARROWS).forEach(function(key) {
+    if (config.total_direction === 4 && DIAGONALS.indexOf(key) !== -1) {
+      return;
+    }
+    registerPrompt(ARROWS[key] + ': ', key, config[key]);
+  });
+  registerPrompt('HLS Force: ', 'hlsdomain', hlsdomains.join(','), 'Hostnames, example: 1.com,2.com,3.com');
+  registerToggle('Live Chat: ', 'livechat', config.livechat, true, false);
+  registerToggle('Total Direction: ', 'total_direction', config.total_direction, 8, 4);
+  registerToggle('Gesture Hint: ', 'hint', config.hint, true, false);
+  registerToggle('Debug Log: ', 'debug', config.debug, true, false);
+  // Without relabelling there is no honest count to show, so the entry only offers the clearing.
+  addMenuCommand(canRelabelMenu ? 'Collected: ' + collected_urls.size + ' (clear)' : 'Clear collected links', clearCollected);
+}
+
+function refreshMenu() {
+  if (!isTopFrame || !canRelabelMenu) {
+    return;
+  }
+  menuIds.splice(0).forEach(function(id) {
+    try {
+      GM_unregisterMenuCommand(id);
+    } catch (err) {
+      log('menu cleanup failed', err);
+    }
+  });
+  buildMenu();
+}
+
+// Every frame of a page would otherwise register its own copy of the whole menu.
+if (isTopFrame) {
+  buildMenu();
+}
+
+// Only the top frame owns the menu, but a video usually sits in a subframe and reads its own copy
+// of the settings, so every frame has to hear a change to act on it.
+if (canWatchValues) {
+  Object.keys(DEFAULTS).forEach(function(key) {
+    GM_addValueChangeListener(key, function() {
+      applySetting(key);
+    });
+  });
+}
 
 // ---------------------------------------------------------------- youtube utilities
 
 if (isTopFrame && (location.hostname === 'www.youtube.com' || location.hostname === 'm.youtube.com')) {
   let isMobile = location.hostname === 'm.youtube.com';
-  function addMenuCommand(s, url, b) {
+  // Registered outside menuIds: these do not change with the settings, and refreshMenu() rebuilds
+  // only what buildMenu() puts there.
+  function addSwitchCommand(s, url, b) {
     GM_registerMenuCommand(s, function() {
       if (b == true) {
         if (url.indexOf('m.youtube.com') != -1) {
@@ -589,11 +831,11 @@ if (isTopFrame && (location.hostname === 'www.youtube.com' || location.hostname 
     });
   }
   if (!isMobile) {
-    addMenuCommand('Switch to YouTube Mobile persistently', 'https://m.youtube.com/?persist_app=1&app=m', true);
-    addMenuCommand('Switch to YouTube Mobile temporarily', 'https://m.youtube.com/?persist_app=0&app=m', false);
+    addSwitchCommand('Switch to YouTube Mobile persistently', 'https://m.youtube.com/?persist_app=1&app=m', true);
+    addSwitchCommand('Switch to YouTube Mobile temporarily', 'https://m.youtube.com/?persist_app=0&app=m', false);
   } else {
-    addMenuCommand('Switch to YouTube Desktop persistently', 'https://www.youtube.com/?persist_app=1&app=desktop', true);
-    addMenuCommand('Switch to YouTube Desktop temporarily', 'https://www.youtube.com/?persist_app=0&app=desktop', false);
+    addSwitchCommand('Switch to YouTube Desktop persistently', 'https://www.youtube.com/?persist_app=1&app=desktop', true);
+    addSwitchCommand('Switch to YouTube Desktop temporarily', 'https://www.youtube.com/?persist_app=0&app=desktop', false);
     GM_addStyle('ytm-rich-item-renderer {width: 33%!important;margin: 1px!important;padding: 0px!important;}');
   }
 }
